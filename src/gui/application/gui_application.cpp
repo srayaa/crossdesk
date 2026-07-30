@@ -28,6 +28,7 @@
 #include "crossdesk_ui.h"
 #include "fa_solid_900.h"
 #include "localization.h"
+#include "machine_identity.h"
 #include "platform.h"
 #if _WIN32
 #include <windows.h>
@@ -870,6 +871,12 @@ int GuiApplication::Run() {
   InitializeLogger();
   LOG_INFO("CrossDesk version: {} (Slint UI)", CROSSDESK_VERSION);
 
+  // Initialize machine identity (Feature 4: auto-generate ID and password,
+  // start periodic polling)
+  machine_identity_ = std::make_unique<MachineIdentity>();
+  machine_identity_->Initialize(config_center_.get());
+  machine_identity_->StartPolling();
+
   strncpy(signal_server_ip_self_, config_center_->GetSignalServerHost().c_str(),
           sizeof(signal_server_ip_self_) - 1);
   const int signal_port = config_center_->GetSignalServerPort();
@@ -919,10 +926,9 @@ int GuiApplication::Run() {
   } else if (ui_->capture_mode) {
     ui_->main->run();
   } else {
-    // The native tray icon is managed outside Slint, so Slint cannot count it
-    // when deciding whether the last hidden window should stop the event loop.
-    // Keep the loop alive until the tray's explicit Exit action requests quit.
-    ui_->main->show();
+    // Feature 5: Start minimized to system tray. Do not show the main window.
+    // The native tray icon keeps the event loop alive until the tray's
+    // explicit Exit action requests quit.
     slint::run_event_loop(slint::EventLoopMode::RunUntilQuit);
   }
   Cleanup();
@@ -1253,6 +1259,10 @@ void GuiApplication::InitializeSystemTray() {
       std::move(show_window), std::move(hide_window), std::move(exit_app),
       "CrossDesk", localization_language_index_);
 #endif
+  // Feature 5: Show tray icon immediately on startup (don't wait for minimize)
+  if (ui_->tray) {
+    ui_->tray->ShowTrayIcon();
+  }
 #endif
 }
 
@@ -3076,6 +3086,11 @@ void GuiApplication::Cleanup() {
 #if _WIN32 && CROSSDESK_PORTABLE
   JoinPortableWindowsServiceInstallThread();
 #endif
+  // Stop machine identity polling before shutting down
+  if (machine_identity_) {
+    machine_identity_->StopPolling();
+    machine_identity_.reset();
+  }
   clipboard_.Shutdown();
   keyboard_.ForceReleasePressedKeys();
   devices_.DestroyDevices();

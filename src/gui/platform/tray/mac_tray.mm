@@ -266,6 +266,11 @@ MacTray::~MacTray() = default;
 
 void MacTray::MinimizeToTray() { impl_->MinimizeToTray(); }
 
+void MacTray::ShowTrayIcon() {
+  // Mac tray icon is already created in the constructor via EnsureStatusItem().
+  // No additional action needed to show it.
+}
+
 void MacTray::RemoveTrayIcon() { impl_->RemoveTrayIcon(); }
 
 }  // namespace crossdesk

@@ -31,6 +31,7 @@ class LinuxTray {
 
   bool MinimizeToTray();
   void RemoveTrayIcon();
+  void ShowTrayIcon();
   void ProcessEvents();
 
  private:

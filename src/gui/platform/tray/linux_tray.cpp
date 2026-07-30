@@ -1038,6 +1038,11 @@ LinuxTray::~LinuxTray() = default;
 
 bool LinuxTray::MinimizeToTray() { return impl_->MinimizeToTray(); }
 
+void LinuxTray::ShowTrayIcon() {
+  // Ensure the tray icon is embedded without hiding any window
+  impl_->EnsureTrayIcon();
+}
+
 void LinuxTray::RemoveTrayIcon() { impl_->RemoveTrayIcon(); }
 
 void LinuxTray::ProcessEvents() { impl_->ProcessEvents(); }

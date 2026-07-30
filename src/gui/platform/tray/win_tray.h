@@ -28,6 +28,7 @@ class WinTray {
 
   void MinimizeToTray();
   void RemoveTrayIcon();
+  void ShowTrayIcon();
   bool HandleTrayMessage(MSG* msg);
 
  private:

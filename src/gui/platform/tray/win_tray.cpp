@@ -86,6 +86,10 @@ void WinTray::MinimizeToTray() {
   }
 }
 
+void WinTray::ShowTrayIcon() {
+  Shell_NotifyIcon(NIM_ADD, &nid_);
+}
+
 void WinTray::RemoveTrayIcon() { Shell_NotifyIcon(NIM_DELETE, &nid_); }
 
 void WinTray::ShowApplicationWindow() {

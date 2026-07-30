@@ -135,12 +135,12 @@ struct UserSettingsState {
   bool enable_turn_last_ = true;
   bool enable_srtp_last_ = false;
   bool enable_self_hosted_last_ = false;
-  bool enable_autostart_ = false;
-  bool enable_autostart_last_ = false;
+  bool enable_autostart_ = true;
+  bool enable_autostart_last_ = true;
   bool enable_daemon_ = false;
   bool enable_daemon_last_ = false;
-  bool enable_minimize_to_tray_ = false;
-  bool enable_minimize_to_tray_last_ = false;
+  bool enable_minimize_to_tray_ = true;
+  bool enable_minimize_to_tray_last_ = true;
   char file_transfer_save_path_buf_[512] = "";
   std::string file_transfer_save_path_last_;
   char signal_server_ip_self_[256] = "";
