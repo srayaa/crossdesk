@@ -48,8 +48,6 @@ class ConfigCenter {
   int SetDaemon(bool enable_daemon);
   int SetPortableServicePromptSuppressed(bool suppressed);
   int SetFileTransferSavePath(const std::string& path);
-  int SetMachineId(const std::string& machine_id);
-  int SetMachinePassword(const std::string& password);
 
   // read config
 
@@ -73,8 +71,6 @@ class ConfigCenter {
   bool IsEnableDaemon() const;
   bool IsPortableServicePromptSuppressed() const;
   std::string GetFileTransferSavePath() const;
-  std::string GetMachineId() const;
-  std::string GetMachinePassword() const;
 
   int Load();
   int Save();
@@ -103,8 +99,6 @@ class ConfigCenter {
   bool enable_daemon_ = false;
   bool portable_service_prompt_suppressed_ = false;
   std::string file_transfer_save_path_ = "";
-  std::string machine_id_ = "";
-  std::string machine_password_ = "";
 };
 }  // namespace crossdesk
 #endif

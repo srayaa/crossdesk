@@ -28,7 +28,6 @@
 #include "crossdesk_ui.h"
 #include "fa_solid_900.h"
 #include "localization.h"
-#include "machine_identity.h"
 #include "platform.h"
 #if _WIN32
 #include <windows.h>
@@ -871,12 +870,6 @@ int GuiApplication::Run() {
   InitializeLogger();
   LOG_INFO("CrossDesk version: {} (Slint UI)", CROSSDESK_VERSION);
 
-  // Initialize machine identity (Feature 4: auto-generate ID and password,
-  // start periodic polling)
-  machine_identity_ = std::make_unique<MachineIdentity>();
-  machine_identity_->Initialize(config_center_.get());
-  machine_identity_->StartPolling();
-
   strncpy(signal_server_ip_self_, config_center_->GetSignalServerHost().c_str(),
           sizeof(signal_server_ip_self_) - 1);
   const int signal_port = config_center_->GetSignalServerPort();
@@ -918,6 +911,9 @@ int GuiApplication::Run() {
   }
   InitializeModules();
   InitializeUi();
+
+  // Feature 4: Start periodic polling to relay server
+  StartPolling();
 
   ui_->timer.start(slint::TimerMode::Repeated, 16ms, [this] { Tick(); });
   if (ui_->capture_mode &&
@@ -3086,11 +3082,7 @@ void GuiApplication::Cleanup() {
 #if _WIN32 && CROSSDESK_PORTABLE
   JoinPortableWindowsServiceInstallThread();
 #endif
-  // Stop machine identity polling before shutting down
-  if (machine_identity_) {
-    machine_identity_->StopPolling();
-    machine_identity_.reset();
-  }
+  StopPolling();
   clipboard_.Shutdown();
   keyboard_.ForceReleasePressedKeys();
   devices_.DestroyDevices();

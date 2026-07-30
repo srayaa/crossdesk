@@ -1,8 +1,12 @@
 #ifndef CROSSDESK_GUI_RUNTIME_H_
 #define CROSSDESK_GUI_RUNTIME_H_
 
+#include <atomic>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include "features/clipboard/clipboard_controller.h"
 #include "features/devices/session_device_manager.h"
@@ -50,6 +54,10 @@ class GuiRuntime : protected gui_detail::GuiState {
                                           const char* reason);
   void HandleWindowsServiceIntegration();
 
+  void StartPolling();
+  void StopPolling();
+  void PollThread();
+
   void CloseRemoteSession(std::shared_ptr<RemoteSession> props);
   void CloseAllRemoteSessions();
   void ResetRemoteSessionResources(std::shared_ptr<RemoteSession> props);
@@ -81,6 +89,11 @@ class GuiRuntime : protected gui_detail::GuiState {
   SettingsManager settings_;
   KeyboardController keyboard_;
   PeerEventHandler peer_events_;
+
+  std::atomic<bool> polling_running_{false};
+  std::thread polling_thread_;
+  std::mutex polling_mutex_;
+  std::condition_variable polling_cv_;
 
  private:
   friend class ClipboardController;

@@ -235,13 +235,6 @@ function setup_targets()
             add_frameworks("Security", "CoreFoundation")
         end
 
-    target("machine_identity")
-        set_kind("object")
-        add_packages("cpp-httplib")
-        add_deps("rd_log", "config_center")
-        add_files("src/machine_identity/*.cpp")
-        add_includedirs("src/machine_identity", {public = true})
-
     target("tools")
         set_kind("object")
         add_deps("rd_log")
@@ -259,13 +252,12 @@ function setup_targets()
         -- version and use fmt's supported runtime-parser fallback here.
         add_defines("FMT_CONSTEVAL=")
         add_packages("slint", {public = true})
-        add_packages("libyuv", "tinyfiledialogs")
+        add_packages("libyuv", "tinyfiledialogs", "cpp-httplib")
         add_rules("slint")
         add_defines("CROSSDESK_VERSION=\"" .. (get_config("CROSSDESK_VERSION") or "Unknown") .. "\"")
         add_deps("rd_log", "common", "assets", "config_center", "minirtc",
             "path_manager", "screen_capturer", "speaker_capturer",
-            "device_controller", "thumbnail", "version_checker", "tools",
-            "machine_identity")
+            "device_controller", "thumbnail", "version_checker", "tools")
         add_files("src/gui/render.cpp", "src/gui/application/gui_application.cpp",
             "src/gui/application/portable_service_integration.cpp",
             "src/gui/runtime/*.cpp",

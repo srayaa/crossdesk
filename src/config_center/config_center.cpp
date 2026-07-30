@@ -121,23 +121,6 @@ int ConfigCenter::Load() {
     file_transfer_save_path_ = "";
   }
 
-  const char* machine_id_value =
-      ini_.GetValue(section_, "machine_id", nullptr);
-  if (machine_id_value != nullptr && strlen(machine_id_value) > 0) {
-    machine_id_ = machine_id_value;
-  } else {
-    machine_id_ = "";
-  }
-
-  const char* machine_password_value =
-      ini_.GetValue(section_, "machine_password", nullptr);
-  if (machine_password_value != nullptr &&
-      strlen(machine_password_value) > 0) {
-    machine_password_ = machine_password_value;
-  } else {
-    machine_password_ = "";
-  }
-
   if (persist_turn_mode_migration &&
       ini_.SaveFile(config_path_.c_str()) < 0) {
     return -1;
@@ -179,9 +162,6 @@ int ConfigCenter::Save() {
 
   ini_.SetValue(section_, "file_transfer_save_path",
                 file_transfer_save_path_.c_str());
-
-  ini_.SetValue(section_, "machine_id", machine_id_.c_str());
-  ini_.SetValue(section_, "machine_password", machine_password_.c_str());
 
   SI_Error rc = ini_.SaveFile(config_path_.c_str());
   if (rc < 0) {
@@ -491,29 +471,4 @@ std::string ConfigCenter::GetFileTransferSavePath() const {
   return file_transfer_save_path_;
 }
 
-int ConfigCenter::SetMachineId(const std::string& machine_id) {
-  machine_id_ = machine_id;
-  ini_.SetValue(section_, "machine_id", machine_id_.c_str());
-  SI_Error rc = ini_.SaveFile(config_path_.c_str());
-  if (rc < 0) {
-    return -1;
-  }
-  return 0;
-}
-
-int ConfigCenter::SetMachinePassword(const std::string& password) {
-  machine_password_ = password;
-  ini_.SetValue(section_, "machine_password", machine_password_.c_str());
-  SI_Error rc = ini_.SaveFile(config_path_.c_str());
-  if (rc < 0) {
-    return -1;
-  }
-  return 0;
-}
-
-std::string ConfigCenter::GetMachineId() const { return machine_id_; }
-
-std::string ConfigCenter::GetMachinePassword() const {
-  return machine_password_;
-}
 }  // namespace crossdesk

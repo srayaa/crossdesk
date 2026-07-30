@@ -8,8 +8,6 @@
 
 namespace crossdesk {
 
-class MachineIdentity;
-
 // Slint application shell. GuiRuntime remains the owner of transport, media,
 // device, clipboard, transfer and settings behavior.
 class GuiApplication final : private GuiRuntime {
@@ -66,7 +64,6 @@ private:
   bool OpenUrl(const std::string &url);
 
   std::unique_ptr<SlintUi> ui_;
-  std::unique_ptr<MachineIdentity> machine_identity_;
 #if defined(__linux__) && !defined(__APPLE__)
   bool use_xwayland_gui_ = false;
 #endif

