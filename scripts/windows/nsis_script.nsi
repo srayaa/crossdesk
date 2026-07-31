@@ -49,17 +49,18 @@ Section "MainSection"
     ; Check if CrossDesk is running
     StrCpy $1 "CrossDesk.exe"
     
-    nsProcess::_FindProcess "$1"
-    Pop $R0
-    ${If} $R0 = 0  ;
+    ; Use tasklist to check if process exists
+    ExecWait '"$SYSDIR\cmd.exe" /c "tasklist /FI \"IMAGENAME eq $1\" 2>nul | find /I /c \"$1\""' $2
+    ; $2 now contains the count (as a string)
+    StrCpy $2 $2 0  ; extract first character
+    ${If} $2 != 0
         MessageBox MB_ICONQUESTION|MB_YESNO "CrossDesk is running. Do you want to close it and continue the installation?" IDYES closeApp IDNO cancelInstall
     ${Else}
         Goto installApp
     ${EndIf}
 
 closeApp:
-    nsProcess::_KillProcess "$1"
-    Pop $R0
+    ExecWait '"$SYSDIR\taskkill.exe" /F /IM $1' $2
     Sleep 500
     Goto installApp
 
@@ -110,17 +111,17 @@ Section "Uninstall"
     ; Check if CrossDesk is running
     StrCpy $1 "CrossDesk.exe"
     
-    nsProcess::_FindProcess "$1"
-    Pop $R0
-    ${If} $R0 = 0
+    ; Use tasklist to check if process exists
+    ExecWait '"$SYSDIR\cmd.exe" /c "tasklist /FI \"IMAGENAME eq $1\" 2>nul | find /I /c \"$1\""' $2
+    StrCpy $2 $2 0
+    ${If} $2 != 0
         MessageBox MB_ICONQUESTION|MB_YESNO "CrossDesk is running. Do you want to close it and uninstall?" IDYES closeApp IDNO cancelUninstall
     ${Else}
         Goto uninstallApp
     ${EndIf}
 
 closeApp:
-    nsProcess::_KillProcess "$1"
-    Pop $R0
+    ExecWait '"$SYSDIR\taskkill.exe" /F /IM $1' $2
     Sleep 500
     Goto uninstallApp
 

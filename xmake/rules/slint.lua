@@ -12,13 +12,22 @@ rule("slint")
         local outputdir = path.join(target:autogendir(), "rules", "slint")
         os.mkdir(outputdir)
         target:add("includedirs", outputdir, {public = true})
+        -- The Slint compiler generates #include paths relative to the project
+        -- root, so we must add the project root to the include search paths.
+        target:add("includedirs", os.projectdir())
 
         local sourcebatch = target:sourcebatches()[rule_name]
         if sourcebatch and sourcebatch.sourcefiles then
             for _, sourcefile in ipairs(sourcebatch.sourcefiles) do
+                local basename = path.basename(sourcefile)
                 -- Make the generated include discoverable during C++ dependency
                 -- scanning; the real contents are produced before compilation.
-                os.touch(path.join(outputdir, path.basename(sourcefile) .. ".h"))
+                os.touch(path.join(outputdir, basename .. ".h"))
+                os.touch(path.join(outputdir, basename .. ".cpp"))
+                -- Register the generated .cpp file for compilation so that
+                -- the Slint runtime types / methods emitted by the compiler
+                -- are available to the linker.
+                target:add("files", path.join(outputdir, basename .. ".cpp"))
             end
         end
     end)
@@ -28,6 +37,7 @@ rule("slint")
         local compiler = path.join(package:installdir(), "bin", is_host("windows") and "slint-compiler.exe" or "slint-compiler")
         local outputdir = path.join(target:autogendir(), "rules", "slint")
         local outputfile = path.join(outputdir, path.basename(sourcefile) .. ".h")
+        local cppfile = path.join(outputdir, path.basename(sourcefile) .. ".cpp")
         local depfile = outputfile .. ".d"
 
         batchcmds:show_progress(opt.progress, "${color.build.object}generating.slint %s", sourcefile)
