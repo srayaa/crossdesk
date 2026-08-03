@@ -277,20 +277,22 @@ function setup_targets()
         end
 
     if is_os("windows") then
-        target("wgc_plugin")
-            set_kind("shared")
-            add_packages("libyuv")
-            add_deps("rd_log", "path_manager")
-            add_defines("CROSSDESK_WGC_PLUGIN_BUILD=1")
-            -- Keep the project on C++17 while C++/WinRT still falls back to
-            -- MSVC's deprecated experimental coroutine header.
-            add_defines("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
-            add_links("windowsapp")
-            add_files("src/screen_capturer/windows/screen_capturer_wgc.cpp",
-                "src/screen_capturer/windows/wgc_session_impl.cpp",
-                "src/screen_capturer/windows/wgc_plugin_entry.cpp")
-            add_includedirs("src/common", "src/screen_capturer",
-                "src/screen_capturer/windows")
+        if not is_config("iswin7", true) then
+            target("wgc_plugin")
+                set_kind("shared")
+                add_packages("libyuv")
+                add_deps("rd_log", "path_manager")
+                add_defines("CROSSDESK_WGC_PLUGIN_BUILD=1")
+                -- Keep the project on C++17 while C++/WinRT still falls back to
+                -- MSVC's deprecated experimental coroutine header.
+                add_defines("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
+                add_links("windowsapp")
+                add_files("src/screen_capturer/windows/screen_capturer_wgc.cpp",
+                    "src/screen_capturer/windows/wgc_session_impl.cpp",
+                    "src/screen_capturer/windows/wgc_plugin_entry.cpp")
+                add_includedirs("src/common", "src/screen_capturer",
+                    "src/screen_capturer/windows")
+        end
 
         target("crossdesk_service")
             set_kind("binary")
@@ -319,7 +321,10 @@ function setup_targets()
             add_files("src/service/windows/service_host.cpp")
             add_includedirs("src/service/windows", {public = true})
             add_links("Advapi32", "Wtsapi32", "Ole32", "Userenv")
-            add_deps("wgc_plugin", "crossdesk_service", "crossdesk_session_helper")
+            add_deps("crossdesk_service", "crossdesk_session_helper")
+            if not is_config("iswin7", true) then
+                add_deps("wgc_plugin")
+            end
             add_files(crossdesk_windows_resource)
         end
         after_build(copy_slint_runtime)

@@ -10,6 +10,16 @@
 !define UNINSTALL_REG_KEY "CrossDesk"
 !define PRODUCT_SERVICE_NAME "CrossDeskService"
 
+!ifndef ISWIN7
+!define ISWIN7 0
+!endif
+
+!if ${ISWIN7} == 1
+!define INSTALLER_SUFFIX "_win7"
+!else
+!define INSTALLER_SUFFIX ""
+!endif
+
 ; Installer icon path
 !define MUI_ICON "${__FILEDIR__}\..\..\icons\windows\crossdesk.ico"
 
@@ -40,7 +50,7 @@ RequestExecutionLevel admin
 !include "LogicLib.nsh"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "crossdesk-win-x64-${PRODUCT_VERSION}.exe"
+OutFile "crossdesk-win-x64-${PRODUCT_VERSION}${INSTALLER_SUFFIX}.exe"
 InstallDir "$PROGRAMFILES\CrossDesk"
 InstallDirRegKey HKCU "Software\${PRODUCT_NAME}" "InstallDir"
 ShowInstDetails show

@@ -1,6 +1,9 @@
-param(
+﻿param(
   [Parameter(Mandatory = $true)]
-  [string]$Version
+  [string]$Version,
+
+  [ValidateSet(0, 1)]
+  [int]$iswin7 = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +34,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Push-Location $scriptDir
 try {
-  & makensis "/DVERSION=$normalizedVersion" "nsis_script.nsi"
+  & makensis "/DVERSION=$normalizedVersion" "/DISWIN7=$iswin7" "nsis_script.nsi"
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
   }

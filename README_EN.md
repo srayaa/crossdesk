@@ -20,6 +20,9 @@ Web Client
   <img width="850" height="550" alt="6bddcbed47ffd4b9988a4037c7f4f524" src="https://github.com/user-attachments/assets/e44f73f9-24ac-46a3-a189-b7f8b6669881" />
 </p>
 
+# 编译
+.\scripts\windows\build.ps1 -Version 2.0.0 -iswin7 1
+.\scripts\windows\build.ps1 -Version 2.0.0
 # Intro
 
 CrossDesk is a lightweight cross-platform remote desktop software.

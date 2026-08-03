@@ -29,6 +29,12 @@ function setup_options_and_dependencies()
         set_description("Build CrossDesk as a portable package that stores data beside the executable")
     option_end()
 
+    option("iswin7")
+        set_default(false)
+        set_showmenu(true)
+        set_description("Build Windows 7 compatible binaries")
+    option_end()
+
     add_rules("mode.release", "mode.debug")
     -- Preserve the existing codebase/toolchain contract. Slint targets opt in to
     -- C++20 locally because its generated C++ API requires it.
@@ -46,6 +52,9 @@ function setup_options_and_dependencies()
     if is_config("CROSSDESK_PORTABLE", true) then
         add_defines("CROSSDESK_PORTABLE=1")
     end
+    if is_config("iswin7", true) then
+        add_defines("CROSSDESK_WIN7_COMPAT=1")
+    end
 
     if is_mode("debug") then
         add_defines("CROSSDESK_DEBUG")
@@ -53,7 +62,12 @@ function setup_options_and_dependencies()
 
     add_requireconfs("*.python", {version = "3.12", override = true, configs = {pgo = false}})
     add_requires("spdlog 1.14.1", {system = false})
-    add_requires("slint 1.17.1", {configs = {shared = true}})
+    add_requires("slint 1.17.1", {
+        configs = {
+            shared = true,
+            win7_compat = is_config("iswin7", true)
+        }
+    })
     add_requires("libsdl3 3.2.26", {configs = {shared = false}})
     add_requires("openssl3 3.3.2", {system = false})
     add_requires("nlohmann_json 3.11.3")

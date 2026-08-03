@@ -29,7 +29,7 @@ function setup_platform_settings()
         add_defines("NOMINMAX", "WIN32_LEAN_AND_MEAN")
         add_links("Shell32", "dwmapi", "User32", "kernel32",
             "gdi32", "winmm", "setupapi", "version",
-            "Imm32", "iphlpapi", "d3d11", "dxgi")
+            "Imm32", "iphlpapi", "Ws2_32", "d3d11", "dxgi")
         add_cxflags("/WX")
         set_runtimes("MT")
     elseif is_os("linux") then

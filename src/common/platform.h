@@ -15,5 +15,11 @@ std::string GetMac();
 std::string GetHostName();
 bool IsWaylandSession();
 
+#if defined(_WIN32) && defined(CROSSDESK_WIN7_COMPAT)
+bool IsWindows10OrLater();
+bool IsWindows8OrLater();
+void InitializeWindowsCompat();
+#endif
+
 }  // namespace crossdesk
 #endif

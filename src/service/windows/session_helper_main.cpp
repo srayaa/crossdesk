@@ -137,8 +137,44 @@ void InitializeHelperLogger() {
 }
 
 void EnablePerMonitorDpiAwareness() {
-  SetProcessDpiAwarenessContext(
-      DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#ifndef CROSSDESK_WIN7_COMPAT
+  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#else
+  HMODULE user32 = GetModuleHandleW(L"user32.dll");
+  if (!user32) {
+    user32 = LoadLibraryW(L"user32.dll");
+  }
+  if (!user32) {
+    return;
+  }
+
+  typedef BOOL(WINAPI* SetProcessDpiAwarenessContextFn)(void*);
+  auto set_ctx = reinterpret_cast<SetProcessDpiAwarenessContextFn>(
+      GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+  if (set_ctx &&
+      set_ctx(reinterpret_cast<void*>(static_cast<INT_PTR>(-4)))) {
+    return;
+  }
+
+  HMODULE shcore = LoadLibraryW(L"shcore.dll");
+  if (shcore) {
+    typedef HRESULT(WINAPI* SetProcessDpiAwarenessFn)(int);
+    auto set_aware = reinterpret_cast<SetProcessDpiAwarenessFn>(
+        GetProcAddress(shcore, "SetProcessDpiAwareness"));
+    const HRESULT result = set_aware ? set_aware(2) : E_NOTIMPL;
+    FreeLibrary(shcore);
+    if (SUCCEEDED(result)) {
+      return;
+    }
+  }
+
+  typedef BOOL(WINAPI* SetProcessDPIAwareFn)();
+  auto set_dpi_aware = reinterpret_cast<SetProcessDPIAwareFn>(
+      GetProcAddress(user32, "SetProcessDPIAware"));
+  if (set_dpi_aware) {
+    set_dpi_aware();
+  }
+#endif
 }
 
 void CALLBACK SessionHelperDesktopSwitchWinEventProc(

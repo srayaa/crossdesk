@@ -15,6 +15,9 @@
 #include <vector>
 
 #include "interactive_state.h"
+#ifdef CROSSDESK_WIN7_COMPAT
+#include "platform.h"
+#endif
 #include "rd_log.h"
 #include "screen_capturer_dxgi.h"
 #include "screen_capturer_gdi.h"
@@ -56,6 +59,11 @@ class WgcPluginCapturer final : public ScreenCapturer {
   using DestroyFn = void (*)(ScreenCapturer*);
 
   static std::unique_ptr<ScreenCapturer> Create() {
+#ifdef CROSSDESK_WIN7_COMPAT
+    if (!IsWindows10OrLater()) {
+      return nullptr;
+    }
+#endif
     std::filesystem::path plugin_path;
     wchar_t module_path[MAX_PATH] = {0};
     const DWORD len = GetModuleFileNameW(nullptr, module_path, MAX_PATH);

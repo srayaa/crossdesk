@@ -21,6 +21,9 @@
 #include "config_center.h"
 #include "daemon.h"
 #include "path_manager.h"
+#if defined(_WIN32) && defined(CROSSDESK_WIN7_COMPAT)
+#include "platform.h"
+#endif
 #include "render.h"
 
 #ifdef _WIN32
@@ -175,6 +178,10 @@ int HandleServiceCliCommand(const std::string& command) {
 
 int main(int argc, char* argv[]) {
 #ifdef _WIN32
+#ifdef CROSSDESK_WIN7_COMPAT
+  crossdesk::InitializeWindowsCompat();
+#endif
+
   if (argc > 1 && IsServiceCliCommand(argv[1])) {
     return HandleServiceCliCommand(argv[1]);
   }
