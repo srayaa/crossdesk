@@ -8,6 +8,7 @@
 #define _SESSION_HELPER_SHARED_H_
 
 #include <Windows.h>
+#include <WtsApi32.h>
 
 #include <cstdint>
 #include <string>
@@ -34,6 +35,58 @@ inline constexpr wchar_t kCrossDeskSecureDesktopFrameReadyEventPrefix[] =
     L"Global\\CrossDeskSecureDesktopFrameReady-";
 inline constexpr uint32_t kCrossDeskSecureDesktopFrameMagic = 0x50444358;
 inline constexpr uint32_t kCrossDeskSecureDesktopFrameVersion = 1;
+
+inline bool UsesReversedWtsSessionStateFlags() {
+#if defined(CROSSDESK_WIN7_COMPAT)
+  static const bool uses_reversed_flags = []() {
+    using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*);
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (ntdll == nullptr) {
+      return false;
+    }
+
+    auto rtl_get_version = reinterpret_cast<RtlGetVersionFunction>(
+        GetProcAddress(ntdll, "RtlGetVersion"));
+    if (rtl_get_version == nullptr) {
+      return false;
+    }
+
+    OSVERSIONINFOW version{};
+    version.dwOSVersionInfoSize = sizeof(version);
+    if (rtl_get_version(&version) != 0) {
+      return false;
+    }
+
+    // Windows 7 and Server 2008 R2 report these two WTS flags reversed.
+    return version.dwMajorVersion == 6 && version.dwMinorVersion == 1;
+  }();
+  return uses_reversed_flags;
+#else
+  return false;
+#endif
+}
+
+inline bool DecodeWtsSessionLockState(LONG session_flags,
+                                      bool* session_locked_out) {
+  if (session_locked_out == nullptr) {
+    return false;
+  }
+
+  const bool uses_reversed_flags = UsesReversedWtsSessionStateFlags();
+  const LONG locked_flag = uses_reversed_flags ? WTS_SESSIONSTATE_UNLOCK
+                                               : WTS_SESSIONSTATE_LOCK;
+  const LONG unlocked_flag = uses_reversed_flags ? WTS_SESSIONSTATE_LOCK
+                                                 : WTS_SESSIONSTATE_UNLOCK;
+  if (session_flags == locked_flag) {
+    *session_locked_out = true;
+    return true;
+  }
+  if (session_flags == unlocked_flag) {
+    *session_locked_out = false;
+    return true;
+  }
+  return false;
+}
 
 #pragma pack(push, 1)
 struct CrossDeskSecureDesktopFrameHeader {

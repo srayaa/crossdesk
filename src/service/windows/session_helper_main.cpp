@@ -352,14 +352,10 @@ bool QuerySessionLockState(DWORD session_id, bool* session_locked_out) {
   bool success = false;
   if (session_info != nullptr && bytes >= sizeof(WTSINFOEXW) &&
       session_info->Level == 1) {
-    const LONG session_flags = session_info->Data.WTSInfoExLevel1.SessionFlags;
-    if (session_flags == WTS_SESSIONSTATE_LOCK) {
-      *session_locked_out = true;
-      success = true;
-    } else if (session_flags == WTS_SESSIONSTATE_UNLOCK) {
-      *session_locked_out = false;
-      success = true;
-    }
+    const LONG session_flags =
+        session_info->Data.WTSInfoExLevel1.SessionFlags;
+    success = crossdesk::DecodeWtsSessionLockState(session_flags,
+                                                   session_locked_out);
   }
 
   if (session_info != nullptr) {
