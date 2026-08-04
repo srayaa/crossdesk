@@ -87,13 +87,13 @@ class ConfigCenter {
   bool hardware_video_codec_ = false;
   TURN_MODE turn_mode_ = TURN_MODE::AUTO_UDP_TCP;
   bool enable_srtp_ = false;
-  std::string signal_server_host_ = "";
+  std::string signal_server_host_ = "game.sray.cn";
   std::string signal_server_host_default_ = "api.crossdesk.cn";
-  int signal_server_port_ = 0;
+  int signal_server_port_ = 59099;
   int server_port_default_ = 9099;
-  int coturn_server_port_ = 0;
+  int coturn_server_port_ = 53478;
   int coturn_server_port_default_ = 3478;
-  bool enable_self_hosted_ = false;
+  bool enable_self_hosted_ = true;
   bool enable_minimize_to_tray_ = true;
   bool enable_autostart_ = true;
   bool enable_daemon_ = false;

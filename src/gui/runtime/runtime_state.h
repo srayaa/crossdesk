@@ -123,10 +123,10 @@ struct UserSettingsState {
   bool enable_hardware_video_codec_ = true;
   bool enable_turn_ = true;
   bool enable_srtp_ = false;
-  char signal_server_ip_[256] = "api.crossdesk.cn";
-  char signal_server_port_[6] = "9099";
-  char coturn_server_port_[6] = "3478";
-  bool enable_self_hosted_ = false;
+  char signal_server_ip_[256] = "game.sray.cn";
+  char signal_server_port_[6] = "59099";
+  char coturn_server_port_[6] = "53478";
+  bool enable_self_hosted_ = true;
   int language_button_value_last_ = 0;
   int video_quality_button_value_last_ = 0;
   int video_frame_rate_button_value_last_ = 0;
@@ -134,7 +134,7 @@ struct UserSettingsState {
   bool enable_hardware_video_codec_last_ = false;
   bool enable_turn_last_ = true;
   bool enable_srtp_last_ = false;
-  bool enable_self_hosted_last_ = false;
+  bool enable_self_hosted_last_ = true;
   bool enable_autostart_ = true;
   bool enable_autostart_last_ = true;
   bool enable_daemon_ = false;
@@ -143,9 +143,9 @@ struct UserSettingsState {
   bool enable_minimize_to_tray_last_ = true;
   char file_transfer_save_path_buf_[512] = "";
   std::string file_transfer_save_path_last_;
-  char signal_server_ip_self_[256] = "";
-  char signal_server_port_self_[6] = "";
-  char coturn_server_port_self_[6] = "";
+  char signal_server_ip_self_[256] = "game.sray.cn";
+  char signal_server_port_self_[6] = "59099";
+  char coturn_server_port_self_[6] = "53478";
   bool settings_window_pos_reset_ = true;
   bool self_hosted_server_config_window_pos_reset_ = true;
   std::string selected_current_file_path_;

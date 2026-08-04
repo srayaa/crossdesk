@@ -82,7 +82,7 @@ int ConfigCenter::Load() {
       strlen(signal_server_host_value) > 0) {
     signal_server_host_ = signal_server_host_value;
   } else {
-    signal_server_host_ = "";
+    signal_server_host_ = "game.sray.cn";
   }
   const char* signal_server_port_value =
       ini_.GetValue(section_, "signal_server_port", nullptr);
@@ -91,7 +91,7 @@ int ConfigCenter::Load() {
     signal_server_port_ =
         static_cast<int>(ini_.GetLongValue(section_, "signal_server_port", 0));
   } else {
-    signal_server_port_ = 0;
+    signal_server_port_ = 59099;
   }
   const char* coturn_server_port_value =
       ini_.GetValue(section_, "coturn_server_port", nullptr);
@@ -100,7 +100,7 @@ int ConfigCenter::Load() {
     coturn_server_port_ =
         static_cast<int>(ini_.GetLongValue(section_, "coturn_server_port", 0));
   } else {
-    coturn_server_port_ = 0;
+    coturn_server_port_ = 53478;
   }
 
   enable_autostart_ =
