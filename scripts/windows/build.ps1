@@ -335,7 +335,8 @@ if (-not $SkipBuild -or $Reconfig) {
             "-p", "windows",
             "-m", "release",
             "-a", "x64",
-            "--iswin7=$XmakeWin7"
+            "--iswin7=$XmakeWin7",
+            "--CROSSDESK_VERSION=$Version"
         )
         & $xmakePath @configArgs
         if ($LASTEXITCODE -ne 0) {

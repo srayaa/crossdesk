@@ -460,11 +460,19 @@ int GuiApplication::CreateServerWindow() {
     return -1;
   }
   ImGui::SetCurrentContext(server_ctx_);
+
+  SDL_WindowFlags server_window_flags =
+      SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_BORDERLESS |
+      SDL_WINDOW_TRANSPARENT;
+#if _WIN32
+  // Apply utility semantics before the HWND is shown so the shell never
+  // registers this session panel in the taskbar or Alt+Tab list.
+  server_window_flags |= SDL_WINDOW_UTILITY;
+#endif
+
   if (!SDL_CreateWindowAndRenderer(
           "CrossDesk Server Window", (int)server_window_width_,
-          (int)server_window_height_,
-          SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_BORDERLESS |
-              SDL_WINDOW_TRANSPARENT,
+          (int)server_window_height_, server_window_flags,
           &server_window_, &server_renderer_)) {
     LOG_ERROR("Error creating server_window_ and server_renderer_: {}",
               SDL_GetError());
