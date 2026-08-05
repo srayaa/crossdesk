@@ -205,8 +205,11 @@ void PeerEventHandler::OnReceiveDataBuffer(
   } else {
     // remote
 #if _WIN32
-    if (runtime->local_service_status_received_ &&
-        IsSecureDesktopInteractionRequired(runtime->local_interactive_stage_) &&
+    const bool secure_route =
+        runtime->local_service_status_received_ &&
+        IsSecureDesktopInteractionRequired(runtime->local_interactive_stage_);
+
+    if (secure_route &&
         remote_action.type != ControlType::keyboard &&
         remote_action.type != ControlType::keyboard_state) {
       if (remote_action.type == ControlType::mouse) {
@@ -227,7 +230,19 @@ void PeerEventHandler::OnReceiveDataBuffer(
             absolute_x, absolute_y, remote_action.m.s,
             static_cast<int>(remote_action.m.flag), 1000);
         auto json = nlohmann::json::parse(response, nullptr, false);
+
         if (json.is_discarded() || !json.value("ok", false)) {
+          const bool service_send_input_rejected =
+              !json.is_discarded() &&
+              json.value("error", std::string()) == "send_input_failed";
+          if (service_send_input_rejected) {
+            const bool gui_fallback_ok = runtime->devices_.SendMouseCommand(
+                remote_action, runtime->selected_display_);
+            if (gui_fallback_ok) {
+              return;
+            }
+          }
+
           LogSecureDesktopInputBlocked(
               &runtime->last_local_secure_input_block_log_tick_, "local",
               runtime->local_interactive_stage_.c_str());

@@ -209,12 +209,27 @@ int KeyboardController::SendKeyCommand(int key_code, bool is_down,
 bool KeyboardController::InjectRemoteKey(int key_code, bool is_down,
                                          uint32_t scan_code, bool extended) {
 #if _WIN32
-  if (owner_.local_service_status_received_ &&
-      IsSecureDesktopInteractionRequired(owner_.local_interactive_stage_)) {
+  const bool secure_route =
+      owner_.local_service_status_received_ &&
+      IsSecureDesktopInteractionRequired(owner_.local_interactive_stage_);
+
+  if (secure_route) {
     const std::string response = SendCrossDeskSecureDesktopKeyInput(
         key_code, is_down, scan_code, extended, 1000);
     const auto json = nlohmann::json::parse(response, nullptr, false);
+
     if (json.is_discarded() || !json.value("ok", false)) {
+      const bool service_send_input_rejected =
+          !json.is_discarded() &&
+          json.value("error", std::string()) == "send_input_failed";
+      if (service_send_input_rejected) {
+        const bool gui_fallback_ok = owner_.devices_.SendKeyboardCommand(
+            key_code, is_down, scan_code, extended);
+        if (gui_fallback_ok) {
+          return true;
+        }
+      }
+
       RemoteAction action{};
       action.type = ControlType::keyboard;
       action.k.key_value = static_cast<size_t>(key_code);

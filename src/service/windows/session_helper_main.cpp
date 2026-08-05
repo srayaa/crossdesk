@@ -631,7 +631,8 @@ bool EnsureThreadDesktop(const wchar_t* desktop_name,
   return true;
 }
 
-bool EnsureThreadInputDesktop(HDESK* opened_desktop_out = nullptr) {
+bool EnsureThreadInputDesktop(HDESK* opened_desktop_out = nullptr,
+                              std::wstring* input_desktop_out = nullptr) {
   HDESK desktop =
       OpenInputDesktop(0, FALSE, kCrossDeskInteractiveDesktopAccess);
   if (desktop == nullptr) {
@@ -639,6 +640,9 @@ bool EnsureThreadInputDesktop(HDESK* opened_desktop_out = nullptr) {
   }
 
   const std::wstring input_desktop = GetDesktopNameW(desktop);
+  if (input_desktop_out != nullptr) {
+    *input_desktop_out = input_desktop;
+  }
   const std::wstring current_desktop = GetCurrentThreadDesktopNameW();
   if (!input_desktop.empty() && !current_desktop.empty() &&
       _wcsicmp(input_desktop.c_str(), current_desktop.c_str()) == 0) {
@@ -773,6 +777,16 @@ bool EnsureThreadInteractiveDesktopForStage(
       BuildDesktopSwitchDetails(interactive_stage, interactive_desktop);
   if (switch_details != nullptr) {
     *switch_details = local_details;
+  }
+
+  std::wstring input_desktop_name;
+  if (EnsureThreadInputDesktop(opened_desktop_out, &input_desktop_name)) {
+    if (switch_details != nullptr) {
+      switch_details->target_desktop = WideToUtf8(input_desktop_name);
+      switch_details->current_desktop =
+          WideToUtf8(GetCurrentThreadDesktopNameW());
+    }
+    return true;
   }
 
   const std::wstring desktop_name =

@@ -5,6 +5,39 @@
 #include "rd_log.h"
 
 namespace crossdesk {
+namespace {
+
+LONG NormalizeAbsoluteMouseCoordinate(int value, int origin, int size) {
+  if (size <= 1) {
+    return 0;
+  }
+
+  const int maximum = origin + size - 1;
+  const int clamped_value =
+      value < origin ? origin : (value > maximum ? maximum : value);
+  const long long relative_value =
+      static_cast<long long>(clamped_value - origin) * 65535;
+  return static_cast<LONG>(relative_value / (size - 1));
+}
+
+INPUT BuildAbsoluteMouseMoveInput(int x, int y) {
+  INPUT input = {0};
+  input.type = INPUT_MOUSE;
+
+  const int virtual_left = GetSystemMetrics(SM_XVIRTUALSCREEN);
+  const int virtual_top = GetSystemMetrics(SM_YVIRTUALSCREEN);
+  const int virtual_width = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+  const int virtual_height = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+  input.mi.dx =
+      NormalizeAbsoluteMouseCoordinate(x, virtual_left, virtual_width);
+  input.mi.dy =
+      NormalizeAbsoluteMouseCoordinate(y, virtual_top, virtual_height);
+  input.mi.dwFlags =
+      MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+  return input;
+}
+
+}  // namespace
 
 MouseController::MouseController() {}
 
@@ -79,7 +112,13 @@ int MouseController::SendMouseCommand(RemoteAction remote_action,
       return -1;
     }
 
-    if (ip.mi.dwFlags != MOUSEEVENTF_MOVE) {
+    if (ip.mi.dwFlags == MOUSEEVENTF_MOVE) {
+      // SetCursorPos alone does not restore a cursor hidden while typing.
+      // This best-effort event supplies mouse activity without changing the
+      // successful position update if secure-desktop policy rejects it.
+      INPUT move_input = BuildAbsoluteMouseMoveInput(ip.mi.dx, ip.mi.dy);
+      SendInput(1, &move_input, sizeof(INPUT));
+    } else {
       UINT sent = SendInput(1, &ip, sizeof(INPUT));
       if (sent != 1) {
         LOG_WARN(
