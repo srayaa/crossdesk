@@ -51,6 +51,39 @@ namespace {
 
 using namespace std::chrono_literals;
 
+#if _WIN32
+bool ConfigureServerWindowForTaskbar(HWND hwnd) {
+  if (!hwnd || !IsWindow(hwnd)) {
+    return false;
+  }
+
+  const LONG_PTR ex_style = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+  const LONG_PTR updated_ex_style =
+      (ex_style | WS_EX_TOOLWINDOW) & ~WS_EX_APPWINDOW;
+  const bool was_visible = IsWindowVisible(hwnd) != FALSE;
+  if (was_visible) {
+    ShowWindow(hwnd, SW_HIDE);
+  }
+
+  SetLastError(ERROR_SUCCESS);
+  const LONG_PTR previous_ex_style =
+      SetWindowLongPtr(hwnd, GWL_EXSTYLE, updated_ex_style);
+  if (previous_ex_style == 0 && GetLastError() != ERROR_SUCCESS) {
+    if (was_visible) {
+      ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    }
+    return false;
+  }
+
+  SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+  if (was_visible) {
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+  }
+  return true;
+}
+#endif
+
 #if defined(__linux__) && !defined(__APPLE__)
 bool HasNonEmptyEnvironmentVariable(const char* name) {
   const char* value = std::getenv(name);
@@ -831,6 +864,9 @@ struct GuiApplication::SlintUi {
   int stream_live_resize_configuration_attempts = 0;
   int stream_initial_position_attempts = 0;
   int server_initial_position_attempts = 0;
+#if _WIN32
+  bool server_native_style_configured = false;
+#endif
   int localized_language = -1;
   bool capture_mode = false;
   std::string capture_page;
@@ -2619,10 +2655,22 @@ void GuiApplication::SyncServerWindow() {
     server_window_created_ = false;
     server_window_inited_ = false;
     ui_->server_initial_position_attempts = 0;
+#if _WIN32
+    ui_->server_native_style_configured = false;
+#endif
   }
   if (!ui_->server) {
     return;
   }
+
+#if _WIN32
+  if (!ui_->server_native_style_configured) {
+    const HWND server_hwnd = (*ui_->server)->window().win32_hwnd();
+    if (ConfigureServerWindowForTaskbar(server_hwnd)) {
+      ui_->server_native_style_configured = true;
+    }
+  }
+#endif
 
   std::vector<ui::ControllerEntry> controllers;
   std::vector<slint::SharedString> names;
