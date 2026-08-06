@@ -13,6 +13,7 @@
 #include <wrl/client.h>
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -51,6 +52,11 @@ class ScreenCapturerDxgi : public ScreenCapturer {
   void EnumerateDisplays();
   bool CreateDuplicationForMonitor(int monitor_index);
   bool RecreateDuplicationForCurrentMonitor();
+  bool EnsureCursorSurface(int width, int height);
+  const uint8_t* CompositeCursor(
+      const D3D11_MAPPED_SUBRESOURCE& mapped, int width, int height,
+      int monitor_index, int* stride);
+  void ReleaseCursorSurface();
   void CaptureLoop();
   void ReleaseDuplication();
 
@@ -63,6 +69,14 @@ class ScreenCapturerDxgi : public ScreenCapturer {
   Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
   Microsoft::WRL::ComPtr<IDXGIOutputDuplication> duplication_;
   Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_;
+
+  HDC cursor_dc_ = nullptr;
+  HBITMAP cursor_bitmap_ = nullptr;
+  HGDIOBJ cursor_previous_bitmap_ = nullptr;
+  uint8_t* cursor_frame_ = nullptr;
+  int cursor_width_ = 0;
+  int cursor_height_ = 0;
+  int cursor_stride_ = 0;
 
   std::atomic<bool> running_{false};
   std::atomic<bool> paused_{false};

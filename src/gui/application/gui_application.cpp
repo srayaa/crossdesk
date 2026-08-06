@@ -891,7 +891,10 @@ struct GuiApplication::SlintUi {
 };
 
 GuiApplication::GuiApplication(bool background_agent)
-    : background_agent_(background_agent) {}
+    : background_agent_(background_agent) {
+  force_show_cursor_ = background_agent_;
+  show_cursor_ = force_show_cursor_;
+}
 GuiApplication::~GuiApplication() = default;
 
 int GuiApplication::Run() {

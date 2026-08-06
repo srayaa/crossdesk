@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -63,6 +64,7 @@ int ScreenCapturerDxgi::Init(const int fps, cb_desktop_data cb) {
 int ScreenCapturerDxgi::Destroy() {
   Stop();
   ReleaseDuplication();
+  ReleaseCursorSurface();
   outputs_.clear();
   d3d_context_.Reset();
   d3d_device_.Reset();
@@ -216,11 +218,13 @@ void ScreenCapturerDxgi::EnumerateDisplays() {
                          mi.rcMonitor.left, mi.rcMonitor.top,
                          mi.rcMonitor.right, mi.rcMonitor.bottom);
         // primary first
-        if (is_primary)
+        if (is_primary) {
           display_info_list_.insert(display_info_list_.begin(), info);
-        else
+          outputs_.insert(outputs_.begin(), output);
+        } else {
           display_info_list_.push_back(info);
-        outputs_.push_back(output);
+          outputs_.push_back(output);
+        }
       }
     }
   }
@@ -271,6 +275,124 @@ bool ScreenCapturerDxgi::RecreateDuplicationForCurrentMonitor() {
     return true;
   }
   return false;
+}
+
+bool ScreenCapturerDxgi::EnsureCursorSurface(int width, int height) {
+  if (cursor_dc_ && cursor_bitmap_ && cursor_frame_ &&
+      cursor_width_ == width && cursor_height_ == height) {
+    return true;
+  }
+
+  ReleaseCursorSurface();
+
+  cursor_dc_ = CreateCompatibleDC(nullptr);
+  if (!cursor_dc_) {
+    return false;
+  }
+
+  BITMAPINFO bitmap_info{};
+  bitmap_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bitmap_info.bmiHeader.biWidth = width;
+  bitmap_info.bmiHeader.biHeight = -height;
+  bitmap_info.bmiHeader.biPlanes = 1;
+  bitmap_info.bmiHeader.biBitCount = 32;
+  bitmap_info.bmiHeader.biCompression = BI_RGB;
+
+  void* bits = nullptr;
+  cursor_bitmap_ = CreateDIBSection(cursor_dc_, &bitmap_info, DIB_RGB_COLORS,
+                                    &bits, nullptr, 0);
+  if (!cursor_bitmap_ || !bits) {
+    ReleaseCursorSurface();
+    return false;
+  }
+
+  cursor_previous_bitmap_ = SelectObject(cursor_dc_, cursor_bitmap_);
+  if (!cursor_previous_bitmap_ ||
+      cursor_previous_bitmap_ == HGDI_ERROR) {
+    cursor_previous_bitmap_ = nullptr;
+    ReleaseCursorSurface();
+    return false;
+  }
+
+  cursor_frame_ = static_cast<uint8_t*>(bits);
+  cursor_width_ = width;
+  cursor_height_ = height;
+  cursor_stride_ = width * 4;
+  return true;
+}
+
+const uint8_t* ScreenCapturerDxgi::CompositeCursor(
+    const D3D11_MAPPED_SUBRESOURCE& mapped, int width, int height,
+    int monitor_index, int* stride) {
+  const auto* source = static_cast<const uint8_t*>(mapped.pData);
+  *stride = static_cast<int>(mapped.RowPitch);
+  if (!show_cursor_.load(std::memory_order_relaxed) || !source ||
+      monitor_index < 0 ||
+      monitor_index >= static_cast<int>(display_info_list_.size())) {
+    return source;
+  }
+
+  CURSORINFO cursor_info{};
+  cursor_info.cbSize = sizeof(CURSORINFO);
+  if (!GetCursorInfo(&cursor_info) ||
+      (cursor_info.flags & CURSOR_SHOWING) == 0 ||
+      cursor_info.hCursor == nullptr) {
+    return source;
+  }
+
+  const DisplayInfo& display = display_info_list_[monitor_index];
+  RECT display_rect{display.left, display.top, display.right, display.bottom};
+  if (!PtInRect(&display_rect, cursor_info.ptScreenPos) ||
+      !EnsureCursorSurface(width, height)) {
+    return source;
+  }
+
+  for (int row = 0; row < height; ++row) {
+    std::memcpy(cursor_frame_ + row * cursor_stride_,
+                source + row * mapped.RowPitch, cursor_stride_);
+  }
+
+  POINT hotspot{};
+  ICONINFO icon_info{};
+  if (GetIconInfo(cursor_info.hCursor, &icon_info)) {
+    hotspot.x = static_cast<LONG>(icon_info.xHotspot);
+    hotspot.y = static_cast<LONG>(icon_info.yHotspot);
+    if (icon_info.hbmColor) {
+      DeleteObject(icon_info.hbmColor);
+    }
+    if (icon_info.hbmMask) {
+      DeleteObject(icon_info.hbmMask);
+    }
+  }
+
+  const int cursor_x =
+      cursor_info.ptScreenPos.x - display.left - hotspot.x;
+  const int cursor_y =
+      cursor_info.ptScreenPos.y - display.top - hotspot.y;
+  DrawIconEx(cursor_dc_, cursor_x, cursor_y, cursor_info.hCursor, 0, 0, 0,
+             nullptr, DI_NORMAL);
+
+  *stride = cursor_stride_;
+  return cursor_frame_;
+}
+
+void ScreenCapturerDxgi::ReleaseCursorSurface() {
+  cursor_frame_ = nullptr;
+  cursor_width_ = 0;
+  cursor_height_ = 0;
+  cursor_stride_ = 0;
+  if (cursor_dc_ && cursor_previous_bitmap_) {
+    SelectObject(cursor_dc_, cursor_previous_bitmap_);
+  }
+  cursor_previous_bitmap_ = nullptr;
+  if (cursor_bitmap_) {
+    DeleteObject(cursor_bitmap_);
+    cursor_bitmap_ = nullptr;
+  }
+  if (cursor_dc_) {
+    DeleteDC(cursor_dc_);
+    cursor_dc_ = nullptr;
+  }
 }
 
 void ScreenCapturerDxgi::ReleaseDuplication() {
@@ -372,10 +494,13 @@ void ScreenCapturerDxgi::CaptureLoop() {
       nv12_height_ = even_height;
     }
 
-    libyuv::ARGBToNV12(static_cast<const uint8_t*>(mapped.pData),
-                       static_cast<int>(mapped.RowPitch), nv12_frame_,
-                       even_width, nv12_frame_ + even_width * even_height,
-                       even_width, even_width, even_height);
+    int argb_stride = 0;
+    const uint8_t* argb_frame = CompositeCursor(
+        mapped, logical_width, static_cast<int>(src_desc.Height),
+        monitor_index_.load(), &argb_stride);
+    libyuv::ARGBToNV12(argb_frame, argb_stride, nv12_frame_, even_width,
+                       nv12_frame_ + even_width * even_height, even_width,
+                       even_width, even_height);
 
     if (callback_) {
       int idx = monitor_index_.load();

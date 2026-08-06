@@ -141,7 +141,7 @@ void GuiRuntime::HandleServerControllerDisconnected(
       }
     }
   }
-  show_cursor_ = has_web_controller;
+  show_cursor_ = force_show_cursor_ || has_web_controller;
   if (has_connected_controller) {
     remote_client_id_ = remaining_controller_id;
     return;

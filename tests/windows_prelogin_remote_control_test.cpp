@@ -77,8 +77,17 @@ int main() {
       ReadFile(repo_root / "src/gui/application/gui_application.cpp");
   const std::string gui_application_h =
       ReadFile(repo_root / "src/gui/application/gui_application.h");
+  const std::string application_state =
+      ReadFile(repo_root / "src/gui/application/application_state.h");
+  const std::string connection_runtime =
+      ReadFile(repo_root / "src/gui/runtime/connection_runtime.cpp");
+  const std::string peer_event_handler =
+      ReadFile(repo_root / "src/gui/runtime/peer_event_handler.cpp");
   const std::string path_manager =
       ReadFile(repo_root / "src/path_manager/path_manager.cpp");
+  const std::string screen_capturer_dxgi =
+      ReadFile(repo_root /
+               "src/screen_capturer/windows/screen_capturer_dxgi.cpp");
   const std::string service_host =
       ReadFile(repo_root / "src/service/windows/service_host.cpp");
   const std::string service_monitor = ExtractSection(
@@ -132,10 +141,28 @@ int main() {
                        "if (background_agent_)");
   ok &= ExpectContains("gui_application.cpp", gui_application,
                        "quit_requested_.store(true");
+  ok &= ExpectContains("gui_application.cpp", gui_application,
+                       "force_show_cursor_ = background_agent_");
   ok &= ExpectContains("gui_application.h", gui_application_h,
                        "std::atomic<bool> quit_requested_");
+  ok &= ExpectContains("application_state.h", application_state,
+                       "bool force_show_cursor_ = false");
+  ok &= ExpectContains("connection_runtime.cpp", connection_runtime,
+                       "force_show_cursor_ || has_web_controller");
+  ok &= ExpectContains("peer_event_handler.cpp", peer_event_handler,
+                       "runtime->force_show_cursor_ ||");
   ok &= ExpectContains("path_manager.cpp", path_manager,
                        "CROSSDESK_DATA_DIR");
+  ok &= ExpectContains("screen_capturer_dxgi.cpp", screen_capturer_dxgi,
+                       "CreateDIBSection(");
+  ok &= ExpectContains("screen_capturer_dxgi.cpp", screen_capturer_dxgi,
+                       "GetCursorInfo(");
+  ok &= ExpectContains("screen_capturer_dxgi.cpp", screen_capturer_dxgi,
+                       "GetIconInfo(");
+  ok &= ExpectContains("screen_capturer_dxgi.cpp", screen_capturer_dxgi,
+                       "DrawIconEx(");
+  ok &= ExpectContains("screen_capturer_dxgi.cpp", screen_capturer_dxgi,
+                       "CompositeCursor(");
 
   return ok ? 0 : 1;
 }
