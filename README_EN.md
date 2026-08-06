@@ -52,6 +52,10 @@ Before connecting, you can customize configuration options in the settings, such
 
 ![settings](https://github.com/user-attachments/assets/8bc5468d-7bbb-4e30-95bd-da1f352ac08c)
 
+### Tray and Main Window Shortcut
+
+On Windows, press the global shortcut `Ctrl+Alt+V` to show the main window. Single-clicking or double-clicking the tray icon does not show the main window, while the context menu remains available. Hovering over the tray icon displays `360CD`.
+
 ### Web Client
 
 Visit  [CrossDesk Web Client](https://web.crossdesk.cn/).

@@ -3,10 +3,17 @@
 #include <SDL3/SDL.h>
 
 #include "localization.h"
+#include "rd_log.h"
 
 #include <utility>
 
 namespace crossdesk {
+
+namespace {
+
+constexpr int kShowMainWindowHotkeyId = 1;
+
+}  // namespace
 
 // callback for the message-only window that handles tray icon messages
 static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam,
@@ -17,12 +24,12 @@ static LRESULT CALLBACK MsgWndProc(HWND hwnd, UINT msg, WPARAM wParam,
     return DefWindowProc(hwnd, msg, wParam, lParam);
   }
 
-  if (msg == WM_TRAY_CALLBACK) {
+  if (msg == WM_TRAY_CALLBACK || msg == WM_HOTKEY) {
     MSG tmpMsg = {};
     tmpMsg.message = msg;
     tmpMsg.wParam = wParam;
     tmpMsg.lParam = lParam;
-    tray->HandleTrayMessage(&tmpMsg);
+    tray->HandleWindowMessage(&tmpMsg);
     return 0;
   }
 
@@ -51,6 +58,14 @@ WinTray::WinTray(HWND app_hwnd, HICON icon, const std::wstring& tooltip,
   SetWindowLongPtr(hwnd_message_only_, GWLP_USERDATA,
                    reinterpret_cast<LONG_PTR>(this));
 
+  show_window_hotkey_registered_ =
+      RegisterHotKey(hwnd_message_only_, kShowMainWindowHotkeyId,
+                     MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'V') != FALSE;
+  if (!show_window_hotkey_registered_) {
+    LOG_WARN("Failed to register Ctrl+Alt+V main window hotkey, error={}",
+             GetLastError());
+  }
+
   // initialize NOTIFYICONDATA structure
   ZeroMemory(&nid_, sizeof(nid_));
   nid_.cbSize = sizeof(nid_);
@@ -74,6 +89,9 @@ WinTray::WinTray(std::function<void()> show_window,
 
 WinTray::~WinTray() {
   RemoveTrayIcon();
+  if (show_window_hotkey_registered_) {
+    UnregisterHotKey(hwnd_message_only_, kShowMainWindowHotkeyId);
+  }
   if (hwnd_message_only_) DestroyWindow(hwnd_message_only_);
 }
 
@@ -101,16 +119,20 @@ void WinTray::ShowApplicationWindow() {
   }
 }
 
-bool WinTray::HandleTrayMessage(MSG* msg) {
-  if (!msg || msg->message != WM_TRAY_CALLBACK) return false;
+bool WinTray::HandleWindowMessage(MSG* msg) {
+  if (!msg) return false;
+
+  if (msg->message == WM_HOTKEY) {
+    if (msg->wParam != kShowMainWindowHotkeyId) {
+      return false;
+    }
+    ShowApplicationWindow();
+    return true;
+  }
+
+  if (msg->message != WM_TRAY_CALLBACK) return false;
 
   switch (LOWORD(msg->lParam)) {
-    case WM_LBUTTONDBLCLK:
-    case WM_LBUTTONUP: {
-      ShowApplicationWindow();
-      break;
-    }
-
     case WM_RBUTTONUP: {
       POINT pt;
       GetCursorPos(&pt);
@@ -133,8 +155,6 @@ bool WinTray::HandleTrayMessage(MSG* msg) {
           event.type = SDL_EVENT_QUIT;
           SDL_PushEvent(&event);
         }
-      } else if (cmd == 1002) {
-        ShowApplicationWindow();
       }
       break;
     }

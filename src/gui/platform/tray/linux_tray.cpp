@@ -571,9 +571,7 @@ struct LinuxTrayImpl {
       return;
     }
 
-    if (event.button == Button1) {
-      ShowWindow();
-    } else if (event.button == Button3) {
+    if (event.button == Button3) {
       ShowMenu(event.x_root, event.y_root);
     }
   }

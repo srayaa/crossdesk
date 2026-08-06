@@ -1281,15 +1281,15 @@ void GuiApplication::InitializeSystemTray() {
 #if _WIN32
   ui_->tray = std::make_unique<WinTray>(
       std::move(show_window), std::move(hide_window), std::move(exit_app),
-      LoadSlintTrayIcon(), L"CrossDesk", localization_language_index_);
+      LoadSlintTrayIcon(), L"360CD", localization_language_index_);
 #elif defined(__APPLE__)
   ui_->tray = std::make_unique<MacTray>(
       std::move(show_window), std::move(hide_window), std::move(open_settings),
-      std::move(exit_app), "CrossDesk", localization_language_index_);
+      std::move(exit_app), "360CD", localization_language_index_);
 #elif defined(__linux__)
   ui_->tray = std::make_unique<LinuxTray>(
       std::move(show_window), std::move(hide_window), std::move(exit_app),
-      "CrossDesk", localization_language_index_);
+      "360CD", localization_language_index_);
 #endif
   // Feature 5: Show tray icon immediately on startup (don't wait for minimize)
   if (ui_->tray) {

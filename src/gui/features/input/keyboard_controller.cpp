@@ -50,6 +50,9 @@ void PopulateWindowsKeyMetadataFromVk(int key_code, uint32_t *scan_code_out,
   if (!scan_code_out || !extended_out) {
     return;
   }
+  if (LookupWindowsKeyMetadataFromVk(key_code, scan_code_out, extended_out)) {
+    return;
+  }
 #if _WIN32
   const UINT scan_code =
       MapVirtualKeyW(static_cast<UINT>(key_code), MAPVK_VK_TO_VSC_EX);
@@ -59,7 +62,6 @@ void PopulateWindowsKeyMetadataFromVk(int key_code, uint32_t *scan_code_out,
     return;
   }
 #endif
-  LookupWindowsKeyMetadataFromVk(key_code, scan_code_out, extended_out);
 }
 
 #if _WIN32
@@ -208,6 +210,8 @@ int KeyboardController::SendKeyCommand(int key_code, bool is_down,
 
 bool KeyboardController::InjectRemoteKey(int key_code, bool is_down,
                                          uint32_t scan_code, bool extended) {
+  LookupWindowsKeyMetadataFromVk(key_code, &scan_code, &extended);
+
 #if _WIN32
   const bool secure_route =
       owner_.local_service_status_received_ &&

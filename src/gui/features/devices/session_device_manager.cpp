@@ -230,6 +230,12 @@ int SessionDeviceManager::StopMouseController() {
 int SessionDeviceManager::StartKeyboardCapturer() {
   owner_.keyboard_capturer_uses_window_events_ = false;
 
+#if _WIN32
+  owner_.keyboard_capturer_uses_window_events_ = true;
+  LOG_INFO("Start keyboard capturer with Slint Windows backend");
+  return 0;
+#endif
+
 #ifdef __APPLE__
   if (!owner_.EnsureMacAccessibilityPermission()) {
     owner_.keyboard_capturer_uses_window_events_ = true;

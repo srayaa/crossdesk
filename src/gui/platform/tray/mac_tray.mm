@@ -296,10 +296,7 @@ void MacTray::RemoveTrayIcon() { impl_->RemoveTrayIcon(); }
   NSEvent *event = [NSApp currentEvent];
   if (event && [event type] == NSEventTypeRightMouseUp) {
     owner_->ShowMenu();
-    return;
   }
-
-  owner_->ShowWindow();
 }
 
 - (void)exitApplication:(id)sender {

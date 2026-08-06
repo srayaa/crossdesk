@@ -47,6 +47,10 @@ CrossDesk 是 [MiniRTC](https://github.com/kunkundi/minirtc.git) 实时音视频
 发起连接前，可在设置中自定义配置项，如语言、视频编码格式等。
 ![settings](https://github.com/user-attachments/assets/8bc5468d-7bbb-4e30-95bd-da1f352ac08c)
 
+### 托盘与主窗口快捷键
+
+Windows 客户端可通过全局快捷键 `Ctrl+Alt+V` 显示主窗口。单击或双击托盘图标不会显示主窗口，右键菜单仍可正常使用；鼠标悬停在托盘图标上时显示 `360CD`。
+
 ### Web 客户端
 浏览器访问 [CrossDesk Web Client](https://web.crossdesk.cn/)。
 输入 **远程设备 ID** 与 **密码**，点击连接即可接入远程设备。如图，**iOS Safari 远程控制 Win11**：

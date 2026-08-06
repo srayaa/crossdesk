@@ -29,7 +29,7 @@ class WinTray {
   void MinimizeToTray();
   void RemoveTrayIcon();
   void ShowTrayIcon();
-  bool HandleTrayMessage(MSG* msg);
+  bool HandleWindowMessage(MSG* msg);
 
  private:
   void ShowApplicationWindow();
@@ -43,6 +43,7 @@ class WinTray {
   std::function<void()> show_window_;
   std::function<void()> hide_window_;
   std::function<void()> exit_app_;
+  bool show_window_hotkey_registered_ = false;
 };
 }  // namespace crossdesk
 #endif
