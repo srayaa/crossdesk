@@ -58,10 +58,10 @@ int GuiApplication::UpdateNotificationWindow() {
     // website link
     std::string download_text =
         localization::access_website[localization_language_index_] +
-        "https://crossdesk.cn";
+        "http://sray.cn";
     ImGui::SetWindowFontScale(0.5f);
     ImGui::SetCursorPosX(update_notification_window_width * 0.1f);
-    Hyperlink(download_text, "https://crossdesk.cn",
+    Hyperlink(download_text, "http://sray.cn",
               update_notification_window_width);
     ImGui::SetWindowFontScale(1.0f);
 
@@ -139,7 +139,7 @@ int GuiApplication::UpdateNotificationWindow() {
     if (ImGui::Button(
             localization::update[localization_language_index_].c_str())) {
       // open download page
-      std::string url = "https://crossdesk.cn";
+      std::string url = "http://sray.cn";
       OpenUrl(url);
       show_update_notification_window_ = false;
     }

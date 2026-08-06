@@ -24,9 +24,8 @@ rule("slint")
                 -- scanning; the real contents are produced before compilation.
                 os.touch(path.join(outputdir, basename .. ".h"))
                 os.touch(path.join(outputdir, basename .. ".cpp"))
-                -- Register the generated .cpp file for compilation so that
-                -- the Slint runtime types / methods emitted by the compiler
-                -- are available to the linker.
+                -- Register the generated implementation so Slint's runtime
+                -- types and methods are available to the linker.
                 target:add("files", path.join(outputdir, basename .. ".cpp"))
             end
         end
@@ -46,6 +45,7 @@ rule("slint")
             sourcefile,
             "-f", "cpp",
             "-o", outputfile,
+            "--cpp-file", cppfile,
             "--depfile", depfile,
             "--style", "fluent",
             "--embed-resources=embed-files",

@@ -1495,7 +1495,7 @@ void GuiApplication::BindMainCallbacks() {
                                    ? UiText(std::to_string(coturn_port))
                                    : slint::SharedString{});
   });
-  main->on_open_download([this] { OpenUrl("https://crossdesk.cn"); });
+  main->on_open_download([this] { OpenUrl("http://sray.cn"); });
   main->on_connection_cancel([this] {
     const auto props = FindRemoteSession(ui_->connection_dialog_remote_id);
     if (!props) {

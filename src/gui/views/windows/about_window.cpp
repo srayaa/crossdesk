@@ -115,7 +115,7 @@ int GuiApplication::AboutWindow() {
       ImGui::SetCursorPosX((about_window_width -
                             ImGui::CalcTextSize(latest_version_.c_str()).x) /
                            2.0f);
-      Hyperlink(latest_version_, "https://crossdesk.cn", about_window_width);
+      Hyperlink(latest_version_, "http://sray.cn", about_window_width);
 
       ImGui::Spacing();
     } else {

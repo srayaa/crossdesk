@@ -25,6 +25,63 @@ package("slint")
 
     on_install("windows", "linux", "macosx", function(package)
         local cmake = import("package.tools.cmake")
+        if package:is_plat("windows") then
+            -- MSVC 14.36 miscompiles Slint's nested requires/if-constexpr
+            -- callback probe. Use equivalent SFINAE without disabling ListView.
+            local models_header = "api/cpp/include/private/slint_models.h"
+            local models_source = io.readfile(models_header)
+            local original_includes = [[#include <optional>
+#include <vector>]]
+            local patched_includes = [[#include <optional>
+#include <utility>
+#include <vector>]]
+            assert(models_source:find(original_includes, 1, true),
+                "Unable to locate Slint model includes for the MSVC compatibility patch")
+
+            local make_ops_marker =
+                "    /// Build the ops vtable. The returned struct borrows from `ctx`,"
+            local callback_helpers = [[    using ListViewLayoutCallback = float (*)(void *, uintptr_t, float *);
+
+    template<typename Ctx, typename T = C>
+    static auto make_listview_layout_callback(int)
+            -> decltype(std::declval<T &>().listview_layout(std::declval<float *>()),
+                        ListViewLayoutCallback {})
+    {
+        return [](void *ud, uintptr_t instance_idx, float *y) -> float {
+            return (**static_cast<Ctx *>(ud)->inner->data[instance_idx].ptr).listview_layout(y);
+        };
+    }
+
+    template<typename Ctx>
+    static ListViewLayoutCallback make_listview_layout_callback(...) { return nullptr; }
+
+]]
+            assert(models_source:find(make_ops_marker, 1, true),
+                "Unable to locate Slint's repeater vtable for the MSVC compatibility patch")
+
+            local original_callback = [[            .listview_layout =
+                    [] {
+                        if constexpr (requires(C c, float *y) { c.listview_layout(y); }) {
+                            return [](void *ud, uintptr_t instance_idx, float *y) -> float {
+                                return (**static_cast<Ctx *>(ud)->inner->data[instance_idx].ptr)
+                                        .listview_layout(y);
+                            };
+                        } else {
+                            return nullptr;
+                        }
+                    }(),]]
+            local patched_callback =
+                "            .listview_layout = make_listview_layout_callback<Ctx>(0),"
+            assert(models_source:find(original_callback, 1, true),
+                "Unable to locate Slint's ListView callback for the MSVC compatibility patch")
+            io.replace(models_header, original_includes, patched_includes, {plain = true})
+            io.replace(
+                models_header,
+                make_ops_marker,
+                callback_helpers .. make_ops_marker,
+                {plain = true})
+            io.replace(models_header, original_callback, patched_callback, {plain = true})
+        end
         if package:is_plat("windows") and package:config("win7_compat") then
             local winit_backend = "internal/backends/winit/lib.rs"
             local original_dpi_query = [[            use windows::Win32::UI::HiDpi::SystemParametersInfoForDpi;

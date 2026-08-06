@@ -5,7 +5,7 @@
 !define PRODUCT_NAME "CrossDesk"
 !define PRODUCT_VERSION "${VERSION}"
 !define PRODUCT_PUBLISHER "CrossDesk"
-!define PRODUCT_WEB_SITE "https://www.crossdesk.cn/"
+!define PRODUCT_WEB_SITE "http://sray.cn/"
 !define APP_NAME "CrossDesk"
 !define UNINSTALL_REG_KEY "CrossDesk"
 !define PRODUCT_SERVICE_NAME "CrossDeskService"
