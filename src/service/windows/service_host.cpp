@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cwchar>
 #include <filesystem>
 #include <iostream>
 #include <mutex>
@@ -15,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "path_manager.h"
 #include "rd_log.h"
@@ -30,7 +32,13 @@ constexpr char kSecureDesktopKeyboardIpcCommandPrefix[] = "secure-input-key:";
 constexpr char kSecureDesktopMouseIpcCommandPrefix[] = "secure-input-mouse:";
 constexpr wchar_t kCrossDeskClientProcessName[] = L"crossdesk.exe";
 constexpr DWORD kCrossDeskClientMonitorIntervalMs = 1000;
-constexpr ULONGLONG kCrossDeskClientMonitorStartupGraceMs = 5000;
+constexpr DWORD kBackgroundAgentStopTimeoutMs = 5000;
+constexpr ULONGLONG kBackgroundAgentRestartDelayMs = 3000;
+constexpr ULONGLONG kBackgroundAgentUiHandoffGraceMs = 10000;
+constexpr wchar_t kCrossDeskServiceRegistryPath[] =
+    L"SOFTWARE\\CrossDesk\\Service";
+constexpr wchar_t kCrossDeskServiceClientPathValue[] = L"ClientPath";
+constexpr wchar_t kCrossDeskServiceDataDirValue[] = L"DataDir";
 constexpr ULONGLONG kSasSecureDesktopGraceMs = 15000;
 
 using SendSasFunction = VOID(WINAPI*)(BOOL);
@@ -87,6 +95,42 @@ std::wstring QuoteWindowsArgument(const std::wstring& value) {
   }
   escaped += L"\"";
   return escaped;
+}
+
+std::vector<wchar_t> BuildEnvironmentBlockWithVariable(
+    const wchar_t* base_environment, const std::wstring& name,
+    const std::wstring& value) {
+  std::vector<std::wstring> entries;
+  const std::wstring prefix = name + L"=";
+  for (const wchar_t* cursor = base_environment;
+       cursor != nullptr && *cursor != L'\0';
+       cursor += std::wcslen(cursor) + 1) {
+    std::wstring entry(cursor);
+    if (entry.size() >= prefix.size() &&
+        _wcsnicmp(entry.c_str(), prefix.c_str(), prefix.size()) == 0) {
+      continue;
+    }
+    entries.push_back(std::move(entry));
+  }
+  entries.push_back(prefix + value);
+  std::sort(entries.begin(), entries.end(),
+            [](const std::wstring& left, const std::wstring& right) {
+              return _wcsicmp(left.c_str(), right.c_str()) < 0;
+            });
+
+  size_t character_count = 1;
+  for (const std::wstring& entry : entries) {
+    character_count += entry.size() + 1;
+  }
+
+  std::vector<wchar_t> environment;
+  environment.reserve(character_count);
+  for (const std::wstring& entry : entries) {
+    environment.insert(environment.end(), entry.begin(), entry.end());
+    environment.push_back(L'\0');
+  }
+  environment.push_back(L'\0');
+  return environment;
 }
 
 void InitializeServiceLogger() {
@@ -170,7 +214,8 @@ std::string BuildErrorJson(const char* error, DWORD error_code = 0) {
   return stream.str();
 }
 
-bool HasRunningCrossDeskClientProcess() {
+bool HasRunningCrossDeskClientProcess(DWORD excluded_process_id,
+                                      DWORD target_session_id) {
   HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
   if (snapshot == INVALID_HANDLE_VALUE) {
     LOG_ERROR("CreateToolhelp32Snapshot failed, error={}", GetLastError());
@@ -190,9 +235,15 @@ bool HasRunningCrossDeskClientProcess() {
   }
 
   do {
-    if (_wcsicmp(entry.szExeFile, kCrossDeskClientProcessName) == 0) {
-      CloseHandle(snapshot);
-      return true;
+    if (_wcsicmp(entry.szExeFile, kCrossDeskClientProcessName) == 0 &&
+        entry.th32ProcessID != excluded_process_id) {
+      DWORD process_session_id = 0xFFFFFFFF;
+      if (target_session_id == 0xFFFFFFFF ||
+          (ProcessIdToSessionId(entry.th32ProcessID, &process_session_id) &&
+           process_session_id == target_session_id)) {
+        CloseHandle(snapshot);
+        return true;
+      }
     }
   } while (Process32NextW(snapshot, &entry));
 
@@ -204,6 +255,93 @@ bool HasRunningCrossDeskClientProcess() {
   }
 
   return false;
+}
+
+bool ReadRegistryString(HKEY key, const wchar_t* value_name,
+                        std::wstring* value) {
+  if (key == nullptr || value_name == nullptr || value == nullptr) {
+    return false;
+  }
+
+  DWORD type = 0;
+  DWORD bytes = 0;
+  LONG result =
+      RegQueryValueExW(key, value_name, nullptr, &type, nullptr, &bytes);
+  if (result != ERROR_SUCCESS || type != REG_SZ || bytes < sizeof(wchar_t)) {
+    return false;
+  }
+
+  std::vector<wchar_t> buffer(bytes / sizeof(wchar_t) + 1, L'\0');
+  result = RegQueryValueExW(
+      key, value_name, nullptr, &type,
+      reinterpret_cast<LPBYTE>(buffer.data()), &bytes);
+  if (result != ERROR_SUCCESS) {
+    return false;
+  }
+
+  *value = buffer.data();
+  return !value->empty();
+}
+
+bool ReadServiceConfiguration(std::wstring* client_path,
+                              std::wstring* data_dir) {
+  HKEY key = nullptr;
+  LONG result = RegOpenKeyExW(HKEY_LOCAL_MACHINE,
+                              kCrossDeskServiceRegistryPath, 0, KEY_READ, &key);
+  if (result != ERROR_SUCCESS) {
+    return false;
+  }
+
+  bool success =
+      ReadRegistryString(key, kCrossDeskServiceClientPathValue, client_path) &&
+      ReadRegistryString(key, kCrossDeskServiceDataDirValue, data_dir);
+  RegCloseKey(key);
+  return success;
+}
+
+bool WriteServiceConfiguration(const std::wstring& client_path,
+                               const std::wstring& data_dir) {
+  if (client_path.empty() || data_dir.empty()) {
+    LOG_ERROR("CrossDesk service agent configuration is empty");
+    return false;
+  }
+
+  HKEY key = nullptr;
+  DWORD disposition = 0;
+  LONG result = RegCreateKeyExW(
+      HKEY_LOCAL_MACHINE, kCrossDeskServiceRegistryPath, 0, nullptr,
+      REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, nullptr, &key, &disposition);
+  if (result != ERROR_SUCCESS) {
+    LOG_ERROR("RegCreateKeyExW failed, error={}", result);
+    return false;
+  }
+
+  result = RegSetValueExW(
+      key, kCrossDeskServiceClientPathValue, 0, REG_SZ,
+      reinterpret_cast<const BYTE*>(client_path.c_str()),
+      static_cast<DWORD>((client_path.size() + 1) * sizeof(wchar_t)));
+  if (result == ERROR_SUCCESS) {
+    result = RegSetValueExW(
+        key, kCrossDeskServiceDataDirValue, 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(data_dir.c_str()),
+        static_cast<DWORD>((data_dir.size() + 1) * sizeof(wchar_t)));
+  }
+  RegCloseKey(key);
+
+  if (result != ERROR_SUCCESS) {
+    LOG_ERROR("RegSetValueExW failed, error={}", result);
+    return false;
+  }
+  return true;
+}
+
+void DeleteServiceConfiguration() {
+  LONG result =
+      RegDeleteTreeW(HKEY_LOCAL_MACHINE, kCrossDeskServiceRegistryPath);
+  if (result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND &&
+      result != ERROR_PATH_NOT_FOUND) {
+    LOG_WARN("RegDeleteTreeW failed, error={}", result);
+  }
 }
 
 bool GrantCrossDeskServiceStartAccessToAuthenticatedUsers(SC_HANDLE service) {
@@ -1050,9 +1188,16 @@ int CrossDeskServiceHost::InitializeRuntime() {
 
   started_at_tick_ = GetTickCount64();
   last_sas_tick_ = 0;
+  background_agent_started_at_tick_ = 0;
+  background_agent_next_launch_tick_ = 0;
+  background_agent_suppressed_until_tick_ = 0;
   active_session_id_ = WTSGetActiveConsoleSessionId();
   process_session_id_ = 0xFFFFFFFF;
   input_desktop_error_code_ = 0;
+  background_agent_process_id_ = 0;
+  background_agent_session_id_ = 0xFFFFFFFF;
+  background_agent_exit_code_ = 0;
+  background_agent_last_error_code_ = 0;
   session_helper_process_id_ = 0;
   session_helper_session_id_ = 0xFFFFFFFF;
   session_helper_exit_code_ = 0;
@@ -1081,6 +1226,8 @@ int CrossDeskServiceHost::InitializeRuntime() {
   session_helper_report_credential_ui_visible_ = false;
   session_helper_report_unlock_ui_visible_ = false;
   secure_input_helper_running_ = false;
+  background_agent_configured_ = false;
+  background_agent_running_ = false;
   sas_secure_desktop_seen_ = false;
   last_sas_error_code_ = 0;
   last_sas_success_ = false;
@@ -1093,7 +1240,10 @@ int CrossDeskServiceHost::InitializeRuntime() {
   session_helper_stop_event_ = nullptr;
   secure_input_helper_process_handle_ = nullptr;
   secure_input_helper_stop_event_ = nullptr;
+  background_agent_process_handle_ = nullptr;
+  background_agent_stop_event_ = nullptr;
   input_desktop_name_.clear();
+  background_agent_last_error_.clear();
   last_sas_error_.clear();
   session_helper_last_error_.clear();
   session_helper_status_error_.clear();
@@ -1104,6 +1254,7 @@ int CrossDeskServiceHost::InitializeRuntime() {
   secure_input_helper_interactive_desktop_.clear();
   last_session_event_type_ = 0;
   last_session_event_session_id_ = active_session_id_;
+  LoadBackgroundAgentConfiguration();
   RefreshSessionState();
   EnsureSessionHelper();
   ipc_thread_ = std::thread(&CrossDeskServiceHost::IpcServerLoop, this);
@@ -1117,9 +1268,6 @@ int CrossDeskServiceHost::InitializeRuntime() {
 }
 
 void CrossDeskServiceHost::ShutdownRuntime() {
-  StopSecureInputHelper();
-  StopSessionHelper();
-
   if (stop_event_ != nullptr) {
     SetEvent(stop_event_);
   }
@@ -1127,6 +1275,10 @@ void CrossDeskServiceHost::ShutdownRuntime() {
   if (client_process_monitor_thread_.joinable()) {
     client_process_monitor_thread_.join();
   }
+
+  StopBackgroundAgent();
+  StopSecureInputHelper();
+  StopSessionHelper();
 
   if (ipc_thread_.joinable()) {
     ipc_thread_.join();
@@ -1145,31 +1297,344 @@ void CrossDeskServiceHost::RequestStop() {
 }
 
 void CrossDeskServiceHost::ClientProcessMonitorLoop() {
-  const ULONGLONG monitor_started_at = GetTickCount64();
-
   while (stop_event_ != nullptr) {
+    RefreshSessionState();
+    ReapBackgroundAgent();
+
+    DWORD active_session_id = 0xFFFFFFFF;
+    DWORD background_agent_process_id = 0;
+    DWORD background_agent_session_id = 0xFFFFFFFF;
+    ULONGLONG next_launch_tick = 0;
+    ULONGLONG suppressed_until_tick = 0;
+    bool configured = false;
+    bool running = false;
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      active_session_id = active_session_id_;
+      background_agent_process_id = background_agent_process_id_;
+      background_agent_session_id = background_agent_session_id_;
+      next_launch_tick = background_agent_next_launch_tick_;
+      suppressed_until_tick = background_agent_suppressed_until_tick_;
+      configured = background_agent_configured_;
+      running = background_agent_running_;
+    }
+
+    const ULONGLONG now = GetTickCount64();
+    const bool ui_handoff_active = now < suppressed_until_tick;
+    const bool foreground_client_running =
+        HasRunningCrossDeskClientProcess(background_agent_process_id,
+                                         active_session_id);
+
+    if (!configured || active_session_id == 0xFFFFFFFF ||
+        ui_handoff_active || foreground_client_running) {
+      if (running) {
+        StopBackgroundAgent();
+      }
+    } else if (running &&
+               background_agent_session_id != active_session_id) {
+      StopBackgroundAgent();
+    } else if (!running && now >= next_launch_tick) {
+      LaunchBackgroundAgent(active_session_id);
+    }
+
     DWORD wait_result =
         WaitForSingleObject(stop_event_, kCrossDeskClientMonitorIntervalMs);
     if (wait_result == WAIT_OBJECT_0) {
       return;
     }
-    if (wait_result != WAIT_TIMEOUT) {
-      continue;
-    }
-
-    if (GetTickCount64() - monitor_started_at <
-        kCrossDeskClientMonitorStartupGraceMs) {
-      continue;
-    }
-
-    if (HasRunningCrossDeskClientProcess()) {
-      continue;
-    }
-
-    LOG_INFO("No crossdesk client process detected, stopping service");
-    RequestStop();
-    return;
   }
+}
+
+bool CrossDeskServiceHost::LoadBackgroundAgentConfiguration() {
+  std::wstring client_path;
+  std::wstring data_dir;
+  if (!ReadServiceConfiguration(&client_path, &data_dir)) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_configured_ = false;
+    background_agent_last_error_ = "agent_configuration_unavailable";
+    background_agent_last_error_code_ = ERROR_FILE_NOT_FOUND;
+    return false;
+  }
+
+  std::error_code error;
+  std::filesystem::path resolved_client_path(client_path);
+  if (resolved_client_path.is_relative()) {
+    resolved_client_path =
+        std::filesystem::absolute(resolved_client_path, error);
+  }
+  if (error || !std::filesystem::is_regular_file(resolved_client_path, error)) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_configured_ = false;
+    background_agent_last_error_ = "agent_binary_missing";
+    background_agent_last_error_code_ =
+        error ? static_cast<DWORD>(error.value()) : ERROR_FILE_NOT_FOUND;
+    return false;
+  }
+
+  std::filesystem::path resolved_data_dir(data_dir);
+  if (resolved_data_dir.is_relative()) {
+    resolved_data_dir = std::filesystem::absolute(resolved_data_dir, error);
+  }
+  if (!error) {
+    std::filesystem::create_directories(resolved_data_dir, error);
+  }
+  if (error || !std::filesystem::is_directory(resolved_data_dir, error)) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_configured_ = false;
+    background_agent_last_error_ = "agent_data_directory_unavailable";
+    background_agent_last_error_code_ =
+        error ? static_cast<DWORD>(error.value()) : ERROR_DIRECTORY;
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_client_path_ =
+        resolved_client_path.lexically_normal().wstring();
+    background_agent_data_dir_ = resolved_data_dir.lexically_normal().wstring();
+    background_agent_configured_ = true;
+    background_agent_last_error_.clear();
+    background_agent_last_error_code_ = 0;
+  }
+  LOG_INFO("Background agent configured: client='{}', data_dir='{}'",
+           WideToUtf8(resolved_client_path.wstring()),
+           WideToUtf8(resolved_data_dir.wstring()));
+  return true;
+}
+
+std::wstring CrossDeskServiceHost::GetBackgroundAgentStopEventName(
+    DWORD session_id) const {
+  return L"Global\\CrossDeskBackgroundAgentStop-" +
+         std::to_wstring(GetCurrentProcessId()) + L"-" +
+         std::to_wstring(session_id);
+}
+
+void CrossDeskServiceHost::ReapBackgroundAgent() {
+  std::lock_guard<std::mutex> lifecycle_lock(background_agent_mutex_);
+  HANDLE process_handle = nullptr;
+  HANDLE stop_event_handle = nullptr;
+  DWORD exit_code = 0;
+  DWORD process_id = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (background_agent_process_handle_ == nullptr) {
+      return;
+    }
+
+    DWORD wait_result =
+        WaitForSingleObject(background_agent_process_handle_, 0);
+    if (wait_result != WAIT_OBJECT_0) {
+      background_agent_running_ = true;
+      if (wait_result == WAIT_FAILED) {
+        background_agent_last_error_ = "wait_for_agent_failed";
+        background_agent_last_error_code_ = GetLastError();
+      }
+      return;
+    }
+
+    if (!GetExitCodeProcess(background_agent_process_handle_, &exit_code)) {
+      exit_code = GetLastError();
+    }
+    process_handle = background_agent_process_handle_;
+    stop_event_handle = background_agent_stop_event_;
+    process_id = background_agent_process_id_;
+    background_agent_process_handle_ = nullptr;
+    background_agent_stop_event_ = nullptr;
+    background_agent_process_id_ = 0;
+    background_agent_session_id_ = 0xFFFFFFFF;
+    background_agent_exit_code_ = exit_code;
+    background_agent_started_at_tick_ = 0;
+    background_agent_next_launch_tick_ =
+        GetTickCount64() + kBackgroundAgentRestartDelayMs;
+    background_agent_running_ = false;
+    background_agent_last_error_ = "background_agent_exited";
+    background_agent_last_error_code_ = exit_code;
+  }
+
+  CloseHandle(process_handle);
+  if (stop_event_handle != nullptr) {
+    CloseHandle(stop_event_handle);
+  }
+  LOG_WARN("Background agent exited: pid={}, code={}", process_id, exit_code);
+}
+
+void CrossDeskServiceHost::StopBackgroundAgent() {
+  std::lock_guard<std::mutex> lifecycle_lock(background_agent_mutex_);
+  HANDLE process_handle = nullptr;
+  HANDLE stop_event_handle = nullptr;
+  DWORD process_id = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    process_handle = background_agent_process_handle_;
+    stop_event_handle = background_agent_stop_event_;
+    process_id = background_agent_process_id_;
+    background_agent_process_handle_ = nullptr;
+    background_agent_stop_event_ = nullptr;
+    background_agent_process_id_ = 0;
+    background_agent_session_id_ = 0xFFFFFFFF;
+    background_agent_started_at_tick_ = 0;
+    background_agent_running_ = false;
+  }
+
+  if (stop_event_handle != nullptr) {
+    SetEvent(stop_event_handle);
+  }
+
+  DWORD exit_code = 0;
+  if (process_handle != nullptr) {
+    DWORD wait_result =
+        WaitForSingleObject(process_handle, kBackgroundAgentStopTimeoutMs);
+    if (wait_result == WAIT_TIMEOUT) {
+      LOG_WARN("Background agent did not stop in time, terminating pid={}",
+               process_id);
+      TerminateProcess(process_handle, ERROR_PROCESS_ABORTED);
+      WaitForSingleObject(process_handle, 1000);
+    }
+    if (!GetExitCodeProcess(process_handle, &exit_code)) {
+      exit_code = GetLastError();
+    }
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_exit_code_ = exit_code;
+  }
+  if (process_handle != nullptr) {
+    CloseHandle(process_handle);
+  }
+  if (stop_event_handle != nullptr) {
+    CloseHandle(stop_event_handle);
+  }
+  if (process_id != 0) {
+    LOG_INFO("Background agent stopped: pid={}, code={}", process_id,
+             exit_code);
+  }
+}
+
+bool CrossDeskServiceHost::LaunchBackgroundAgent(DWORD session_id) {
+  std::lock_guard<std::mutex> lifecycle_lock(background_agent_mutex_);
+  std::wstring client_path;
+  std::wstring data_dir;
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    if (background_agent_process_handle_ != nullptr ||
+        !background_agent_configured_) {
+      return background_agent_process_handle_ != nullptr;
+    }
+    client_path = background_agent_client_path_;
+    data_dir = background_agent_data_dir_;
+    background_agent_next_launch_tick_ =
+        GetTickCount64() + kBackgroundAgentRestartDelayMs;
+  }
+
+  auto record_error = [this](const char* error, DWORD error_code) {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_running_ = false;
+    background_agent_last_error_ = error;
+    background_agent_last_error_code_ = error_code;
+    LOG_ERROR("Failed to launch background agent: {}, error={}", error,
+              error_code);
+  };
+
+  std::error_code filesystem_error;
+  if (!std::filesystem::is_regular_file(client_path, filesystem_error)) {
+    record_error("agent_binary_missing",
+                 filesystem_error
+                     ? static_cast<DWORD>(filesystem_error.value())
+                     : ERROR_FILE_NOT_FOUND);
+    return false;
+  }
+
+  std::wstring stop_event_name = GetBackgroundAgentStopEventName(session_id);
+  KernelObjectSecurityAttributes event_security;
+  SECURITY_ATTRIBUTES* event_attributes = nullptr;
+  if (event_security.Initialize()) {
+    event_attributes = event_security.get();
+  }
+  HANDLE stop_event_handle =
+      CreateEventW(event_attributes, TRUE, FALSE, stop_event_name.c_str());
+  if (stop_event_handle == nullptr) {
+    record_error("create_agent_stop_event_failed", GetLastError());
+    return false;
+  }
+  ResetEvent(stop_event_handle);
+
+  std::wstring command_line =
+      QuoteWindowsArgument(client_path) + L" --service-agent --stop-event " +
+      QuoteWindowsArgument(stop_event_name) + L" --service-pid " +
+      std::to_wstring(GetCurrentProcessId());
+  std::wstring mutable_command_line = command_line;
+  std::filesystem::path working_directory =
+      std::filesystem::path(client_path).parent_path();
+
+  STARTUPINFOW startup_info{};
+  startup_info.cb = sizeof(startup_info);
+  startup_info.lpDesktop = const_cast<LPWSTR>(L"winsta0\\default");
+  PROCESS_INFORMATION process_info{};
+  BOOL created = FALSE;
+  DWORD error_code = ERROR_SUCCESS;
+
+  if (console_mode_ && process_session_id_ == session_id) {
+    LPWCH current_environment = GetEnvironmentStringsW();
+    std::vector<wchar_t> environment = BuildEnvironmentBlockWithVariable(
+        current_environment, L"CROSSDESK_DATA_DIR", data_dir);
+    if (current_environment != nullptr) {
+      FreeEnvironmentStringsW(current_environment);
+    }
+    created = CreateProcessW(
+        client_path.c_str(), mutable_command_line.data(), nullptr, nullptr,
+        FALSE, CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+        environment.data(),
+        working_directory.empty() ? nullptr : working_directory.c_str(),
+        &startup_info, &process_info);
+    error_code = created ? ERROR_SUCCESS : GetLastError();
+  } else {
+    HANDLE primary_token = nullptr;
+    if (!CreateSessionSystemToken(session_id, &primary_token, &error_code)) {
+      CloseHandle(stop_event_handle);
+      record_error("create_agent_session_token_failed", error_code);
+      return false;
+    }
+
+    ScopedEnvironmentBlock base_environment;
+    CreateEnvironmentBlock(&base_environment.environment, primary_token, FALSE);
+    std::vector<wchar_t> environment = BuildEnvironmentBlockWithVariable(
+        static_cast<const wchar_t*>(base_environment.environment),
+        L"CROSSDESK_DATA_DIR", data_dir);
+    created = CreateProcessAsUserW(
+        primary_token, client_path.c_str(), mutable_command_line.data(),
+        nullptr, nullptr, FALSE,
+        CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, environment.data(),
+        working_directory.empty() ? nullptr : working_directory.c_str(),
+        &startup_info, &process_info);
+    error_code = created ? ERROR_SUCCESS : GetLastError();
+    CloseHandle(primary_token);
+  }
+
+  if (!created) {
+    CloseHandle(stop_event_handle);
+    record_error("create_agent_process_failed", error_code);
+    return false;
+  }
+
+  CloseHandle(process_info.hThread);
+  {
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    background_agent_process_handle_ = process_info.hProcess;
+    background_agent_stop_event_ = stop_event_handle;
+    background_agent_process_id_ = process_info.dwProcessId;
+    background_agent_session_id_ = session_id;
+    background_agent_exit_code_ = STILL_ACTIVE;
+    background_agent_last_error_code_ = 0;
+    background_agent_last_error_.clear();
+    background_agent_running_ = true;
+    background_agent_started_at_tick_ = GetTickCount64();
+  }
+  LOG_INFO("Background agent started: session_id={}, pid={}", session_id,
+           process_info.dwProcessId);
+  return true;
 }
 
 void CrossDeskServiceHost::ReportServiceStatus(DWORD current_state,
@@ -2006,6 +2471,15 @@ std::string CrossDeskServiceHost::HandleIpcCommand(const std::string& command) {
   if (normalized == "ping") {
     return "{\"ok\":true,\"reply\":\"pong\"}";
   }
+  if (normalized == "prepare-ui") {
+    {
+      std::lock_guard<std::mutex> lock(state_mutex_);
+      background_agent_suppressed_until_tick_ =
+          GetTickCount64() + kBackgroundAgentUiHandoffGraceMs;
+    }
+    StopBackgroundAgent();
+    return "{\"ok\":true,\"background_agent\":\"stopped\"}";
+  }
   if (normalized == "status") {
     return BuildStatusResponse();
   }
@@ -2031,6 +2505,7 @@ std::string CrossDeskServiceHost::HandleIpcCommand(const std::string& command) {
 }
 
 std::string CrossDeskServiceHost::BuildStatusResponse() {
+  ReapBackgroundAgent();
   ReapSecureInputHelper();
   ReapSessionHelper();
   RefreshSessionState();
@@ -2092,6 +2567,8 @@ std::string CrossDeskServiceHost::BuildStatusResponse() {
       EscapeJsonString(secure_input_helper_interactive_stage_);
   std::string secure_input_helper_interactive_desktop =
       EscapeJsonString(secure_input_helper_interactive_desktop_);
+  std::string background_agent_last_error =
+      EscapeJsonString(background_agent_last_error_);
   bool interactive_state_ready = session_helper_status_ok_;
   const bool sas_secure_desktop_grace_active =
       IsSasSecureDesktopGraceActiveLocked();
@@ -2169,6 +2646,26 @@ std::string CrossDeskServiceHost::BuildStatusResponse() {
          << ",\"input_desktop\":\"" << input_desktop << "\""
          << ",\"prelogin\":" << (prelogin_ ? "true" : "false")
          << ",\"session_user\":\"" << username_utf8 << "\""
+         << ",\"background_agent_configured\":"
+         << (background_agent_configured_ ? "true" : "false")
+         << ",\"background_agent_running\":"
+         << (background_agent_running_ ? "true" : "false")
+         << ",\"background_agent_pid\":" << background_agent_process_id_
+         << ",\"background_agent_session_id\":"
+         << background_agent_session_id_
+         << ",\"background_agent_exit_code\":" << background_agent_exit_code_
+         << ",\"background_agent_last_error\":\""
+         << background_agent_last_error << "\""
+         << ",\"background_agent_last_error_code\":"
+         << background_agent_last_error_code_
+         << ",\"background_agent_ui_handoff_active\":"
+         << (GetTickCount64() < background_agent_suppressed_until_tick_
+                 ? "true"
+                 : "false")
+         << ",\"background_agent_uptime_ms\":"
+         << (background_agent_started_at_tick_ >= started_at_tick_
+                 ? (GetTickCount64() - background_agent_started_at_tick_)
+                 : 0)
          << ",\"session_helper_path\":\"" << session_helper_path << "\""
          << ",\"session_helper_running\":"
          << (session_helper_running_ ? "true" : "false")
@@ -2381,7 +2878,14 @@ std::string CrossDeskServiceHost::SendSecureDesktopMouseInput(int x, int y,
       1000);
 }
 
-bool InstallCrossDeskService(const std::wstring& binary_path) {
+bool InstallCrossDeskService(const std::wstring& binary_path,
+                             const std::wstring& client_path,
+                             const std::wstring& data_dir) {
+  if (binary_path.empty() || client_path.empty() || data_dir.empty()) {
+    LOG_ERROR("CrossDesk service installation paths must not be empty");
+    return false;
+  }
+
   SC_HANDLE manager = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_ALL_ACCESS);
   if (manager == nullptr) {
     LOG_ERROR("OpenSCManagerW failed, error={}", GetLastError());
@@ -2391,7 +2895,7 @@ bool InstallCrossDeskService(const std::wstring& binary_path) {
   std::wstring service_command = L"\"" + binary_path + L"\" --service";
   SC_HANDLE service = CreateServiceW(
       manager, kCrossDeskServiceName, kCrossDeskServiceDisplayName,
-      SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_DEMAND_START,
+      SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START,
       SERVICE_ERROR_NORMAL, service_command.c_str(), nullptr, nullptr, nullptr,
       nullptr, nullptr);
 
@@ -2412,7 +2916,7 @@ bool InstallCrossDeskService(const std::wstring& binary_path) {
       return false;
     }
 
-    if (!ChangeServiceConfigW(service, SERVICE_NO_CHANGE, SERVICE_DEMAND_START,
+    if (!ChangeServiceConfigW(service, SERVICE_NO_CHANGE, SERVICE_AUTO_START,
                               SERVICE_NO_CHANGE, service_command.c_str(),
                               nullptr, nullptr, nullptr, nullptr, nullptr,
                               kCrossDeskServiceDisplayName)) {
@@ -2424,6 +2928,12 @@ bool InstallCrossDeskService(const std::wstring& binary_path) {
   }
 
   if (!GrantCrossDeskServiceStartAccessToAuthenticatedUsers(service)) {
+    CloseServiceHandle(service);
+    CloseServiceHandle(manager);
+    return false;
+  }
+
+  if (!WriteServiceConfiguration(client_path, data_dir)) {
     CloseServiceHandle(service);
     CloseServiceHandle(manager);
     return false;
@@ -2567,6 +3077,7 @@ bool UninstallCrossDeskService() {
     DWORD error = GetLastError();
     CloseServiceHandle(manager);
     if (error == ERROR_SERVICE_DOES_NOT_EXIST) {
+      DeleteServiceConfiguration();
       return true;
     }
     LOG_ERROR("OpenServiceW failed, error={}", error);
@@ -2582,6 +3093,9 @@ bool UninstallCrossDeskService() {
 
   CloseServiceHandle(service);
   CloseServiceHandle(manager);
+  if (success) {
+    DeleteServiceConfiguration();
+  }
   return success;
 }
 

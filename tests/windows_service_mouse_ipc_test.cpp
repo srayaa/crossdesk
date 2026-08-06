@@ -1,3 +1,4 @@
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -30,9 +31,27 @@ std::string ReadFile(const std::filesystem::path &path) {
   return stream.str();
 }
 
+std::string NormalizeWhitespace(const std::string &value) {
+  std::string normalized;
+  normalized.reserve(value.size());
+  for (unsigned char character : value) {
+    if (std::isspace(character) != 0) {
+      continue;
+    }
+    normalized.push_back(static_cast<char>(character));
+  }
+  return normalized;
+}
+
+bool ContainsIgnoringWhitespace(const std::string &value,
+                                const std::string &expected) {
+  return NormalizeWhitespace(value).find(NormalizeWhitespace(expected)) !=
+         std::string::npos;
+}
+
 bool ExpectContains(const char *name, const std::string &value,
                     const std::string &expected) {
-  if (value.find(expected) != std::string::npos) {
+  if (ContainsIgnoringWhitespace(value, expected)) {
     return true;
   }
 
@@ -42,7 +61,7 @@ bool ExpectContains(const char *name, const std::string &value,
 
 bool ExpectNotContains(const char *name, const std::string &value,
                        const std::string &unexpected) {
-  if (value.find(unexpected) == std::string::npos) {
+  if (!ContainsIgnoringWhitespace(value, unexpected)) {
     return true;
   }
 

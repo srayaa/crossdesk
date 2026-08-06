@@ -1,6 +1,7 @@
 #ifndef CROSSDESK_GUI_APPLICATION_H_
 #define CROSSDESK_GUI_APPLICATION_H_
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -12,10 +13,11 @@ namespace crossdesk {
 // device, clipboard, transfer and settings behavior.
 class GuiApplication final : private GuiRuntime {
 public:
-  GuiApplication();
+  explicit GuiApplication(bool background_agent = false);
   ~GuiApplication();
 
   int Run();
+  void RequestQuit();
 
 private:
   struct SlintUi;
@@ -64,6 +66,8 @@ private:
   bool OpenUrl(const std::string &url);
 
   std::unique_ptr<SlintUi> ui_;
+  std::atomic<bool> quit_requested_{false};
+  bool background_agent_ = false;
 #if defined(__linux__) && !defined(__APPLE__)
   bool use_xwayland_gui_ = false;
 #endif

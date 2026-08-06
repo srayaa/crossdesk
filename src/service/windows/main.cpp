@@ -1,8 +1,10 @@
 #include <Windows.h>
 
+#include <filesystem>
 #include <iostream>
 #include <string>
 
+#include "path_manager.h"
 #include "service_host.h"
 
 namespace {
@@ -14,6 +16,29 @@ std::wstring GetExecutablePath() {
     return L"";
   }
   return std::wstring(path, length);
+}
+
+std::filesystem::path GetClientPath(const std::wstring& service_path) {
+  if (service_path.empty()) {
+    return {};
+  }
+  return std::filesystem::path(service_path).parent_path() / L"CrossDesk.exe";
+}
+
+std::filesystem::path GetDataDirectory() {
+  crossdesk::PathManager path_manager("CrossDesk");
+  std::filesystem::path data_dir = path_manager.GetCachePath();
+  std::error_code error;
+  if (data_dir.is_relative()) {
+    data_dir = std::filesystem::absolute(data_dir, error);
+  }
+  if (!error) {
+    std::filesystem::create_directories(data_dir, error);
+  }
+  if (error || !std::filesystem::is_directory(data_dir, error)) {
+    return {};
+  }
+  return data_dir.lexically_normal();
 }
 
 void PrintUsage() {
@@ -49,8 +74,14 @@ int main(int argc, char* argv[]) {
   }
   if (command == "--install") {
     std::wstring executable_path = GetExecutablePath();
-    bool success = !executable_path.empty() &&
-                   crossdesk::InstallCrossDeskService(executable_path);
+    std::filesystem::path client_path = GetClientPath(executable_path);
+    std::filesystem::path data_dir = GetDataDirectory();
+    bool success =
+        !executable_path.empty() && std::filesystem::is_regular_file(client_path) &&
+        !data_dir.empty() &&
+        crossdesk::InstallCrossDeskService(
+            executable_path, client_path.lexically_normal().wstring(),
+            data_dir.wstring());
     std::cout << (success ? "install ok" : "install failed") << std::endl;
     return success ? 0 : 1;
   }

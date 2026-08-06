@@ -35,6 +35,11 @@ class CrossDeskServiceHost {
   void ShutdownRuntime();
   void RequestStop();
   void ClientProcessMonitorLoop();
+  void ReapBackgroundAgent();
+  void StopBackgroundAgent();
+  bool LaunchBackgroundAgent(DWORD session_id);
+  bool LoadBackgroundAgentConfiguration();
+  std::wstring GetBackgroundAgentStopEventName(DWORD session_id) const;
   void ReportServiceStatus(DWORD current_state, DWORD win32_exit_code,
                            DWORD wait_hint);
   void IpcServerLoop();
@@ -85,9 +90,14 @@ class CrossDeskServiceHost {
   std::thread ipc_thread_;
   std::thread client_process_monitor_thread_;
   std::mutex state_mutex_;
+  std::mutex background_agent_mutex_;
   DWORD active_session_id_ = 0xFFFFFFFF;
   DWORD process_session_id_ = 0xFFFFFFFF;
   DWORD input_desktop_error_code_ = 0;
+  DWORD background_agent_process_id_ = 0;
+  DWORD background_agent_session_id_ = 0xFFFFFFFF;
+  DWORD background_agent_exit_code_ = 0;
+  DWORD background_agent_last_error_code_ = 0;
   DWORD session_helper_process_id_ = 0;
   DWORD session_helper_session_id_ = 0xFFFFFFFF;
   DWORD session_helper_exit_code_ = 0;
@@ -104,6 +114,9 @@ class CrossDeskServiceHost {
   DWORD last_session_event_session_id_ = 0xFFFFFFFF;
   ULONGLONG started_at_tick_ = 0;
   ULONGLONG last_sas_tick_ = 0;
+  ULONGLONG background_agent_started_at_tick_ = 0;
+  ULONGLONG background_agent_next_launch_tick_ = 0;
+  ULONGLONG background_agent_suppressed_until_tick_ = 0;
   ULONGLONG session_helper_started_at_tick_ = 0;
   ULONGLONG session_helper_report_state_age_ms_ = 0;
   ULONGLONG session_helper_report_uptime_ms_ = 0;
@@ -126,6 +139,8 @@ class CrossDeskServiceHost {
   bool session_helper_report_credential_ui_visible_ = false;
   bool session_helper_report_unlock_ui_visible_ = false;
   bool secure_input_helper_running_ = false;
+  bool background_agent_configured_ = false;
+  bool background_agent_running_ = false;
   bool console_mode_ = false;
   bool sas_secure_desktop_seen_ = false;
   DWORD last_sas_error_code_ = 0;
@@ -134,7 +149,12 @@ class CrossDeskServiceHost {
   HANDLE session_helper_stop_event_ = nullptr;
   HANDLE secure_input_helper_process_handle_ = nullptr;
   HANDLE secure_input_helper_stop_event_ = nullptr;
+  HANDLE background_agent_process_handle_ = nullptr;
+  HANDLE background_agent_stop_event_ = nullptr;
+  std::wstring background_agent_client_path_;
+  std::wstring background_agent_data_dir_;
   std::string input_desktop_name_;
+  std::string background_agent_last_error_;
   std::string last_sas_error_;
   std::string session_helper_last_error_;
   std::string session_helper_status_error_;
@@ -148,7 +168,9 @@ class CrossDeskServiceHost {
 };
 
 bool IsCrossDeskServiceInstalled();
-bool InstallCrossDeskService(const std::wstring& binary_path);
+bool InstallCrossDeskService(const std::wstring& binary_path,
+                             const std::wstring& client_path,
+                             const std::wstring& data_dir);
 bool UninstallCrossDeskService();
 bool StartCrossDeskService();
 bool StopCrossDeskService(DWORD timeout_ms = 5000);

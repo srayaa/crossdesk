@@ -90,6 +90,11 @@ namespace crossdesk {
 PathManager::PathManager(const std::string& app_name) : app_name_(app_name) {}
 
 std::filesystem::path PathManager::GetConfigPath() {
+  std::filesystem::path data_root = GetDataRootOverride();
+  if (!data_root.empty()) {
+    return data_root;
+  }
+
 #if CROSSDESK_PORTABLE
   return GetPortableRootPath() / "data";
 #else
@@ -104,6 +109,11 @@ std::filesystem::path PathManager::GetConfigPath() {
 }
 
 std::filesystem::path PathManager::GetCachePath() {
+  std::filesystem::path data_root = GetDataRootOverride();
+  if (!data_root.empty()) {
+    return data_root;
+  }
+
 #if CROSSDESK_PORTABLE
   return GetPortableRootPath() / "data";
 #else
@@ -122,6 +132,11 @@ std::filesystem::path PathManager::GetCachePath() {
 }
 
 std::filesystem::path PathManager::GetLogPath() {
+  std::filesystem::path data_root = GetDataRootOverride();
+  if (!data_root.empty()) {
+    return data_root / "logs";
+  }
+
 #if CROSSDESK_PORTABLE
   return GetPortableRootPath() / "logs";
 #else
@@ -167,6 +182,28 @@ std::string PathManager::GetHome() {
   }
 #endif
   return {};
+}
+
+std::filesystem::path PathManager::GetDataRootOverride() {
+#ifdef _WIN32
+  size_t required = 0;
+  if (_wgetenv_s(&required, nullptr, 0, L"CROSSDESK_DATA_DIR") != 0 ||
+      required <= 1) {
+    return {};
+  }
+
+  std::vector<wchar_t> buffer(required);
+  if (_wgetenv_s(&required, buffer.data(), buffer.size(),
+                 L"CROSSDESK_DATA_DIR") != 0) {
+    return {};
+  }
+  return std::filesystem::path(buffer.data());
+#else
+  if (const char* data_root = getenv("CROSSDESK_DATA_DIR")) {
+    return std::filesystem::path(data_root);
+  }
+  return {};
+#endif
 }
 
 std::filesystem::path PathManager::GetEnvOrDefault(const char* env_var,

@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -55,12 +56,29 @@ bool ExpectEqual(const char* name, const std::filesystem::path& actual,
   return false;
 }
 
+bool SetDataRootOverride(const std::filesystem::path* path) {
+#ifdef _WIN32
+  return _wputenv_s(L"CROSSDESK_DATA_DIR",
+                    path == nullptr ? L"" : path->c_str()) == 0;
+#else
+  if (path == nullptr) {
+    return unsetenv("CROSSDESK_DATA_DIR") == 0;
+  }
+  return setenv("CROSSDESK_DATA_DIR", path->c_str(), 1) == 0;
+#endif
+}
+
 }  // namespace
 
 int main() {
   const std::filesystem::path exe_dir = GetExecutableDirectory();
   if (exe_dir.empty()) {
     std::cerr << "failed to resolve executable directory\n";
+    return 1;
+  }
+
+  if (!SetDataRootOverride(nullptr)) {
+    std::cerr << "failed to clear CROSSDESK_DATA_DIR\n";
     return 1;
   }
 
@@ -72,6 +90,18 @@ int main() {
   ok &= ExpectEqual("config path", path_manager.GetConfigPath(), expected_data);
   ok &= ExpectEqual("cache path", path_manager.GetCachePath(), expected_data);
   ok &= ExpectEqual("log path", path_manager.GetLogPath(), expected_logs);
+
+  const std::filesystem::path service_data = exe_dir / "service data";
+  if (!SetDataRootOverride(&service_data)) {
+    std::cerr << "failed to set CROSSDESK_DATA_DIR\n";
+    return 1;
+  }
+  ok &= ExpectEqual("overridden config path", path_manager.GetConfigPath(),
+                    service_data);
+  ok &= ExpectEqual("overridden cache path", path_manager.GetCachePath(),
+                    service_data);
+  ok &= ExpectEqual("overridden log path", path_manager.GetLogPath(),
+                    service_data / "logs");
 
   return ok ? 0 : 1;
 }

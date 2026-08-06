@@ -890,7 +890,8 @@ struct GuiApplication::SlintUi {
   }
 };
 
-GuiApplication::GuiApplication() = default;
+GuiApplication::GuiApplication(bool background_agent)
+    : background_agent_(background_agent) {}
 GuiApplication::~GuiApplication() = default;
 
 int GuiApplication::Run() {
@@ -947,6 +948,9 @@ int GuiApplication::Run() {
   }
   InitializeModules();
   InitializeUi();
+  if (quit_requested_.load(std::memory_order_acquire)) {
+    slint::invoke_from_event_loop([] { slint::quit_event_loop(); });
+  }
 
   // Feature 4: Start periodic polling to relay server
   StartPolling();
@@ -965,6 +969,11 @@ int GuiApplication::Run() {
   }
   Cleanup();
   return 0;
+}
+
+void GuiApplication::RequestQuit() {
+  quit_requested_.store(true, std::memory_order_release);
+  slint::invoke_from_event_loop([] { slint::quit_event_loop(); });
 }
 
 void GuiApplication::InitializeLogger() { InitLogger(exec_log_path_); }
@@ -1099,7 +1108,9 @@ void GuiApplication::InitializeUi() {
   ui_->main->set_recent_connections(ui_->recent_model);
   ResetSettingsUi();
   BindMainCallbacks();
-  InitializeSystemTray();
+  if (!background_agent_) {
+    InitializeSystemTray();
+  }
   UpdateLocalization();
   if (ui_->capture_mode) {
     const bool detected_update = update_available_;
@@ -2613,6 +2624,19 @@ void GuiApplication::SyncStreamWindow() {
 }
 
 void GuiApplication::SyncServerWindow() {
+  if (background_agent_) {
+    need_to_create_server_window_.exchange(false, std::memory_order_acq_rel);
+    need_to_destroy_server_window_.exchange(false, std::memory_order_acq_rel);
+    if (ui_->server) {
+      (*ui_->server)->hide();
+      ui_->server.reset();
+    }
+    server_window_created_ = false;
+    server_window_inited_ = false;
+    ui_->server_initial_position_attempts = 0;
+    return;
+  }
+
   // The connection map is authoritative. Lifecycle flags record callback
   // intent, but callbacks for different controllers can cross each other, so
   // the final decision must reflect the current connected-controller set.

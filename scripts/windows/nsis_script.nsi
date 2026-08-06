@@ -206,7 +206,7 @@ Function RegisterInstalledService
         Abort
     ${EndIf}
 
-    DetailPrint "CrossDesk service registered for on-demand start"
+    DetailPrint "CrossDesk service registered for automatic system startup"
 
     Return
 
@@ -245,4 +245,6 @@ unregister_with_sc:
         MessageBox MB_ICONSTOP|MB_OK "Failed to remove the CrossDesk service. Uninstall will be aborted."
         Abort
     ${EndIf}
+
+    DeleteRegKey HKLM "Software\CrossDesk\Service"
 FunctionEnd

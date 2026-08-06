@@ -11,13 +11,14 @@ class GuiApplication;
 // controllers remain private implementation details.
 class Render {
 public:
-  Render();
+  explicit Render(bool background_agent = false);
   ~Render();
 
   Render(const Render &) = delete;
   Render &operator=(const Render &) = delete;
 
   int Run();
+  void RequestQuit();
 
 private:
   std::unique_ptr<GuiApplication> application_;

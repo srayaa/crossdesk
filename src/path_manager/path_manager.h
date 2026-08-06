@@ -34,6 +34,7 @@ class PathManager {
 #endif
 
   std::string GetHome();
+  std::filesystem::path GetDataRootOverride();
   std::filesystem::path GetEnvOrDefault(const char* env_var,
                                         const std::string& def);
 

@@ -83,6 +83,11 @@ function setup_targets()
         set_default(false)
         add_files("tests/windows_manifest_resource_test.cpp")
 
+    target("windows_prelogin_remote_control_test")
+        set_kind("binary")
+        set_default(false)
+        add_files("tests/windows_prelogin_remote_control_test.cpp")
+
     target("windows_service_mouse_ipc_test")
         set_kind("binary")
         set_default(false)

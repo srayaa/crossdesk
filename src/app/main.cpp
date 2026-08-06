@@ -6,11 +6,13 @@
 #endif
 #endif
 
+#include <charconv>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #include <cstdio>
@@ -83,6 +85,22 @@ std::filesystem::path GetSiblingServiceExecutablePath() {
          L"crossdesk_service.exe";
 }
 
+std::filesystem::path GetServiceDataDirectory() {
+  crossdesk::PathManager path_manager("CrossDesk");
+  std::filesystem::path data_dir = path_manager.GetCachePath();
+  std::error_code error;
+  if (data_dir.is_relative()) {
+    data_dir = std::filesystem::absolute(data_dir, error);
+  }
+  if (!error) {
+    std::filesystem::create_directories(data_dir, error);
+  }
+  if (error || !std::filesystem::is_directory(data_dir, error)) {
+    return {};
+  }
+  return data_dir.lexically_normal();
+}
+
 bool IsServiceCliCommand(const char* arg) {
   if (arg == nullptr) {
     return false;
@@ -111,6 +129,86 @@ void TryStartManagedWindowsService() {
   crossdesk::StartCrossDeskService();
 }
 
+void PrepareManagedWindowsServiceForUi() {
+  crossdesk::QueryCrossDeskService("prepare-ui", 7000);
+}
+
+const char* FindCommandLineValue(int argc, char* argv[],
+                                 const char* option_name) {
+  for (int i = 1; i + 1 < argc; ++i) {
+    if (std::strcmp(argv[i], option_name) == 0) {
+      return argv[i + 1];
+    }
+  }
+  return nullptr;
+}
+
+int RunServiceAgent(int argc, char* argv[]) {
+  const char* stop_event_argument =
+      FindCommandLineValue(argc, argv, "--stop-event");
+  const char* service_pid_argument =
+      FindCommandLineValue(argc, argv, "--service-pid");
+  if (stop_event_argument == nullptr || stop_event_argument[0] == '\0' ||
+      service_pid_argument == nullptr || service_pid_argument[0] == '\0') {
+    return ERROR_INVALID_PARAMETER;
+  }
+
+  DWORD service_process_id = 0;
+  const char* service_pid_end =
+      service_pid_argument + std::strlen(service_pid_argument);
+  auto [parsed_end, parse_error] =
+      std::from_chars(service_pid_argument, service_pid_end, service_process_id);
+  if (parse_error != std::errc() || parsed_end != service_pid_end ||
+      service_process_id == 0) {
+    return ERROR_INVALID_PARAMETER;
+  }
+
+  std::wstring stop_event_name(stop_event_argument,
+                               stop_event_argument +
+                                   std::strlen(stop_event_argument));
+  HANDLE stop_event =
+      OpenEventW(SYNCHRONIZE, FALSE, stop_event_name.c_str());
+  if (stop_event == nullptr) {
+    return static_cast<int>(GetLastError());
+  }
+
+  HANDLE service_process =
+      OpenProcess(SYNCHRONIZE, FALSE, service_process_id);
+  if (service_process == nullptr) {
+    DWORD error = GetLastError();
+    CloseHandle(stop_event);
+    return static_cast<int>(error);
+  }
+
+  HANDLE render_done_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+  if (render_done_event == nullptr) {
+    DWORD error = GetLastError();
+    CloseHandle(service_process);
+    CloseHandle(stop_event);
+    return static_cast<int>(error);
+  }
+
+  crossdesk::Render render(true);
+  std::thread stop_monitor(
+      [&render, stop_event, service_process, render_done_event]() {
+        HANDLE events[] = {stop_event, service_process, render_done_event};
+        DWORD wait_result =
+            WaitForMultipleObjects(3, events, FALSE, INFINITE);
+        if (wait_result == WAIT_OBJECT_0 ||
+            wait_result == WAIT_OBJECT_0 + 1) {
+          render.RequestQuit();
+        }
+      });
+
+  int result = render.Run();
+  SetEvent(render_done_event);
+  stop_monitor.join();
+  CloseHandle(render_done_event);
+  CloseHandle(service_process);
+  CloseHandle(stop_event);
+  return result;
+}
+
 int HandleServiceCliCommand(const std::string& command) {
   EnsureConsoleForCli();
 
@@ -131,7 +229,12 @@ int HandleServiceCliCommand(const std::string& command) {
       return 1;
     }
 
-    bool success = crossdesk::InstallCrossDeskService(service_path.wstring());
+    std::wstring client_path = GetCurrentExecutablePathW();
+    std::filesystem::path data_dir = GetServiceDataDirectory();
+    bool success = !client_path.empty() && !data_dir.empty() &&
+                   crossdesk::InstallCrossDeskService(
+                       service_path.wstring(), client_path,
+                       data_dir.wstring());
     std::cout << (success ? "install ok" : "install failed") << std::endl;
     return success ? 0 : 1;
   }
@@ -185,6 +288,10 @@ int main(int argc, char* argv[]) {
   if (argc > 1 && IsServiceCliCommand(argv[1])) {
     return HandleServiceCliCommand(argv[1]);
   }
+
+  if (argc > 1 && std::strcmp(argv[1], "--service-agent") == 0) {
+    return RunServiceAgent(argc, argv);
+  }
 #endif
 
   // check if running as child process
@@ -198,6 +305,10 @@ int main(int argc, char* argv[]) {
 
   if (is_child) {
     // child process: run render directly
+#ifdef _WIN32
+    TryStartManagedWindowsService();
+    PrepareManagedWindowsServiceForUi();
+#endif
     crossdesk::Render render;
     render.Run();
     return 0;
@@ -205,6 +316,7 @@ int main(int argc, char* argv[]) {
 
 #ifdef _WIN32
   TryStartManagedWindowsService();
+  PrepareManagedWindowsServiceForUi();
 #endif
 
   bool enable_daemon = false;
