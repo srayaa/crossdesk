@@ -392,7 +392,7 @@ bool IsNewerVersionWithMetadata(const std::string& current,
 }
 
 nlohmann::json CheckUpdate() {
-  httplib::Client cli("https://version.crossdesk.cn");
+  httplib::Client cli("http://sray.cn");
 
   cli.set_connection_timeout(5);
   cli.set_read_timeout(5);
